@@ -8,7 +8,21 @@ const BAR_LEFT: u32 = 2;
 const BAR_RIGHT_MARGIN: u32 = 2;
 
 const GREEN: [u8; 4] = [0x4a, 0xde, 0x80, 255];
+const YELLOW: [u8; 4] = [0xfa, 0xcc, 0x15, 255];
+const RED: [u8; 4] = [0xef, 0x44, 0x44, 255];
+const GRAY: [u8; 4] = [0x66, 0x66, 0x66, 255];
 const BG: [u8; 4] = [0x3a, 0x3a, 0x4a, 255];
+
+/// Returns the color for a given utilization: green <80%, yellow 80-94%, red >=95%.
+pub fn color_for_utilization(util: f64) -> [u8; 4] {
+    if util >= 0.95 {
+        RED
+    } else if util >= 0.80 {
+        YELLOW
+    } else {
+        GREEN
+    }
+}
 
 pub fn render_tray_icon(
     session_util: f64,
@@ -20,13 +34,18 @@ pub fn render_tray_icon(
         RETINA_ICON_SIZE,
         session_util,
         weekly_util,
-        session_color.unwrap_or(GREEN),
-        weekly_color.unwrap_or(GREEN),
+        session_color.unwrap_or_else(|| color_for_utilization(session_util)),
+        weekly_color.unwrap_or_else(|| color_for_utilization(weekly_util)),
     )
 }
 
 pub fn render_default_icon() -> Vec<u8> {
     render_tray_icon(0.0, 0.0, None, None)
+}
+
+/// Renders the tray icon with dimmed gray bars for error state.
+pub fn render_error_icon() -> Vec<u8> {
+    render_at_size(RETINA_ICON_SIZE, 1.0, 1.0, GRAY, GRAY)
 }
 
 fn render_at_size(

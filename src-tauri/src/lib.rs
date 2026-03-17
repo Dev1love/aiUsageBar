@@ -6,11 +6,13 @@ use std::sync::Mutex;
 
 use tauri::{
     image::Image,
-    tray::TrayIconBuilder,
+    tray::{TrayIconBuilder, TrayIconId},
     Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
 
 use api::UsageData;
+
+const TRAY_ID: &str = "main-tray";
 
 const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
@@ -27,11 +29,35 @@ fn get_usage(state: tauri::State<'_, UsageState>) -> Result<Option<UsageData>, S
     Ok(data.clone())
 }
 
-/// Perform a single poll: read keychain, fetch usage, emit events, update state.
+/// Update the tray icon to reflect current usage levels.
+fn update_tray_icon(app_handle: &tauri::AppHandle, usage: &UsageData) {
+    let icon_rgba = tray_icon::render_tray_icon(
+        usage.five_hour.utilization,
+        usage.seven_day.utilization,
+        None,
+        None,
+    );
+    let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
+    if let Some(tray) = app_handle.tray_by_id(&TrayIconId::new(TRAY_ID)) {
+        let _ = tray.set_icon(Some(icon));
+    }
+}
+
+/// Set the tray icon to the dimmed/gray error state.
+fn set_tray_error_icon(app_handle: &tauri::AppHandle) {
+    let icon_rgba = tray_icon::render_error_icon();
+    let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
+    if let Some(tray) = app_handle.tray_by_id(&TrayIconId::new(TRAY_ID)) {
+        let _ = tray.set_icon(Some(icon));
+    }
+}
+
+/// Perform a single poll: read keychain, fetch usage, emit events, update state & tray icon.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
     let credentials = match keychain::read_credentials() {
         Ok(c) => c,
         Err(e) => {
+            set_tray_error_icon(app_handle);
             let _ = app_handle.emit("usage-error", e);
             return;
         }
@@ -45,9 +71,11 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
                     *data = Some(usage.clone());
                 }
             }
+            update_tray_icon(app_handle, &usage);
             let _ = app_handle.emit("usage-update", &usage);
         }
         Err(e) => {
+            set_tray_error_icon(app_handle);
             let _ = app_handle.emit("usage-error", e.to_string());
         }
     }
@@ -67,7 +95,7 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(false)
                 .tooltip("ClaudeBar")
