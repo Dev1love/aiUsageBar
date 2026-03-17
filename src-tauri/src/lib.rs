@@ -1,3 +1,4 @@
+mod api;
 mod keychain;
 mod tray_icon;
 
