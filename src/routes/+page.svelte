@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
   import UsageBar from '$lib/UsageBar.svelte';
+  import ExtraUsage from '$lib/ExtraUsage.svelte';
 
   interface PeriodUsage {
     utilization: number;
@@ -75,6 +76,13 @@
       utilization={usage.seven_day.utilization}
       resetsAt={usage.seven_day.resets_at}
     />
+    {#if usage.extra_usage.is_enabled && usage.extra_usage.monthly_limit != null && usage.extra_usage.used_credits != null && usage.extra_usage.utilization != null}
+      <ExtraUsage
+        monthlyLimit={usage.extra_usage.monthly_limit}
+        usedCredits={usage.extra_usage.used_credits}
+        utilization={usage.extra_usage.utilization}
+      />
+    {/if}
   {:else}
     <p class="loading">Loading usage data…</p>
   {/if}
