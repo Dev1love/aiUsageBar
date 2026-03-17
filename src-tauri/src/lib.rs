@@ -1,3 +1,4 @@
+mod keychain;
 mod tray_icon;
 
 use tauri::{
