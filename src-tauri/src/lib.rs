@@ -119,7 +119,25 @@ fn set_tray_error_icon(app_handle: &tauri::AppHandle) {
     }
 }
 
+/// Handle a successful usage fetch: update state, store snapshot, update tray, notify, emit event.
+fn handle_usage_success(app_handle: &tauri::AppHandle, usage: UsageData) {
+    if let Some(state) = app_handle.try_state::<UsageState>() {
+        if let Ok(mut data) = state.0.lock() {
+            *data = Some(usage.clone());
+        }
+    }
+    if let Some(db) = app_handle.try_state::<Database>() {
+        if let Ok(conn) = db.0.lock() {
+            db::insert_snapshot(&conn, &usage);
+        }
+    }
+    update_tray_icon(app_handle, &usage);
+    check_and_notify(app_handle, &usage);
+    let _ = app_handle.emit("usage-update", &usage);
+}
+
 /// Perform a single poll: read keychain, fetch usage, emit events, update state & tray icon.
+/// On 401, attempts token refresh once before giving up.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
     let credentials = match keychain::read_credentials() {
         Ok(c) => c,
@@ -132,21 +150,31 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
 
     match api::fetch_usage(&credentials.access_token).await {
         Ok(usage) => {
-            // Update shared state
-            if let Some(state) = app_handle.try_state::<UsageState>() {
-                if let Ok(mut data) = state.0.lock() {
-                    *data = Some(usage.clone());
+            handle_usage_success(app_handle, usage);
+        }
+        Err(api::ApiError::TokenExpired) => {
+            // Attempt token refresh once
+            match api::refresh_access_token(&credentials.refresh_token).await {
+                Ok(new_token) => {
+                    // Retry with refreshed token
+                    match api::fetch_usage(&new_token).await {
+                        Ok(usage) => {
+                            handle_usage_success(app_handle, usage);
+                        }
+                        Err(e) => {
+                            set_tray_error_icon(app_handle);
+                            let _ = app_handle.emit("usage-error", e.to_string());
+                        }
+                    }
+                }
+                Err(_) => {
+                    set_tray_error_icon(app_handle);
+                    let _ = app_handle.emit(
+                        "usage-error",
+                        "Token expired, run 'claude login' to re-authenticate.".to_string(),
+                    );
                 }
             }
-            // Store snapshot in SQLite
-            if let Some(db) = app_handle.try_state::<Database>() {
-                if let Ok(conn) = db.0.lock() {
-                    db::insert_snapshot(&conn, &usage);
-                }
-            }
-            update_tray_icon(app_handle, &usage);
-            check_and_notify(app_handle, &usage);
-            let _ = app_handle.emit("usage-update", &usage);
         }
         Err(e) => {
             set_tray_error_icon(app_handle);

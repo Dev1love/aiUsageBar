@@ -39,6 +39,39 @@ impl fmt::Display for ApiError {
     }
 }
 
+/// Attempt to refresh an expired OAuth access token using the refresh token.
+/// Returns the new access token on success.
+pub async fn refresh_access_token(refresh_token: &str) -> Result<String, ApiError> {
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post("https://console.anthropic.com/v1/oauth/token")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ])
+        .header("User-Agent", "claude-code/2.0.32")
+        .send()
+        .await
+        .map_err(|e| ApiError::Network(format!("Token refresh request failed: {e}")))?;
+
+    if !response.status().is_success() {
+        return Err(ApiError::TokenExpired);
+    }
+
+    #[derive(Deserialize)]
+    struct TokenResponse {
+        access_token: String,
+    }
+
+    let token_resp: TokenResponse = response
+        .json()
+        .await
+        .map_err(|e| ApiError::Parse(format!("Failed to parse token refresh response: {e}")))?;
+
+    Ok(token_resp.access_token)
+}
+
 pub async fn fetch_usage(access_token: &str) -> Result<UsageData, ApiError> {
     let client = reqwest::Client::new();
 
