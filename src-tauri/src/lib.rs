@@ -10,6 +10,7 @@ use tauri::{
     tray::{TrayIconBuilder, TrayIconId},
     Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
+use tauri_plugin_notification::NotificationExt;
 
 use api::UsageData;
 use db::{DailySnapshot, Database};
@@ -21,6 +22,64 @@ const POPUP_LABEL: &str = "popup";
 const POPUP_WIDTH: f64 = 320.0;
 const POPUP_HEIGHT: f64 = 400.0;
 const POLL_INTERVAL_SECS: u64 = 60;
+
+/// Tracks which notification thresholds have fired per reset cycle.
+#[derive(Default)]
+struct NotificationState {
+    /// resets_at value when last notified for five_hour 80%
+    five_hour_80_reset: Option<String>,
+    /// resets_at value when last notified for five_hour 95%
+    five_hour_95_reset: Option<String>,
+    /// resets_at value when last notified for seven_day 80%
+    seven_day_80_reset: Option<String>,
+    /// resets_at value when last notified for seven_day 95%
+    seven_day_95_reset: Option<String>,
+}
+
+struct NotificationTracker(Mutex<NotificationState>);
+
+/// Send a notification if the threshold is crossed and hasn't been notified for this reset cycle.
+fn maybe_notify(
+    app_handle: &tauri::AppHandle,
+    utilization: f64,
+    resets_at: &str,
+    threshold: u8,
+    body: &str,
+    last_reset: &mut Option<String>,
+) {
+    let pct = (utilization * 100.0) as u8;
+    if pct >= threshold {
+        if last_reset.as_deref() != Some(resets_at) {
+            let _ = app_handle
+                .notification()
+                .builder()
+                .title("ClaudeBar")
+                .body(body)
+                .show();
+            *last_reset = Some(resets_at.to_string());
+        }
+    }
+}
+
+/// Check usage thresholds and send notifications (only once per reset cycle).
+fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
+    let Some(tracker) = app_handle.try_state::<NotificationTracker>() else {
+        return;
+    };
+    let Ok(mut state) = tracker.0.lock() else {
+        return;
+    };
+
+    // Check higher threshold first so both 80% and 95% can fire independently
+    maybe_notify(app_handle, usage.five_hour.utilization, &usage.five_hour.resets_at, 95,
+        "Session usage at 95% — limit approaching!", &mut state.five_hour_95_reset);
+    maybe_notify(app_handle, usage.five_hour.utilization, &usage.five_hour.resets_at, 80,
+        "Session usage at 80%", &mut state.five_hour_80_reset);
+    maybe_notify(app_handle, usage.seven_day.utilization, &usage.seven_day.resets_at, 95,
+        "Weekly usage at 95% — limit approaching!", &mut state.seven_day_95_reset);
+    maybe_notify(app_handle, usage.seven_day.utilization, &usage.seven_day.resets_at, 80,
+        "Weekly usage at 80%", &mut state.seven_day_80_reset);
+}
 
 /// Shared state holding the latest usage data.
 struct UsageState(Mutex<Option<UsageData>>);
@@ -86,6 +145,7 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
                 }
             }
             update_tray_icon(app_handle, &usage);
+            check_and_notify(app_handle, &usage);
             let _ = app_handle.emit("usage-update", &usage);
         }
         Err(e) => {
@@ -100,7 +160,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(UsageState(Mutex::new(None)))
+        .manage(NotificationTracker(Mutex::new(NotificationState::default())))
         .invoke_handler(tauri::generate_handler![get_usage, get_history])
         .setup(|app| {
             // Initialize SQLite database
