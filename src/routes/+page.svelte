@@ -4,6 +4,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import UsageBar from '$lib/UsageBar.svelte';
   import ExtraUsage from '$lib/ExtraUsage.svelte';
+  import WeeklyChart from '$lib/WeeklyChart.svelte';
 
   interface PeriodUsage {
     utilization: number;
@@ -83,6 +84,7 @@
         utilization={usage.extra_usage.utilization}
       />
     {/if}
+    <WeeklyChart />
   {:else}
     <p class="loading">Loading usage data…</p>
   {/if}
