@@ -1,4 +1,5 @@
 mod api;
+mod db;
 mod keychain;
 mod tray_icon;
 
@@ -11,6 +12,7 @@ use tauri::{
 };
 
 use api::UsageData;
+use db::{DailySnapshot, Database};
 
 const TRAY_ID: &str = "main-tray";
 
@@ -27,6 +29,12 @@ struct UsageState(Mutex<Option<UsageData>>);
 fn get_usage(state: tauri::State<'_, UsageState>) -> Result<Option<UsageData>, String> {
     let data = state.0.lock().map_err(|e| e.to_string())?;
     Ok(data.clone())
+}
+
+#[tauri::command]
+fn get_history(db: tauri::State<'_, Database>, days: Option<i32>) -> Result<Vec<DailySnapshot>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    Ok(db::get_daily_snapshots(&conn, days.unwrap_or(7)))
 }
 
 /// Update the tray icon to reflect current usage levels.
@@ -71,6 +79,12 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
                     *data = Some(usage.clone());
                 }
             }
+            // Store snapshot in SQLite
+            if let Some(db) = app_handle.try_state::<Database>() {
+                if let Ok(conn) = db.0.lock() {
+                    db::insert_snapshot(&conn, &usage);
+                }
+            }
             update_tray_icon(app_handle, &usage);
             let _ = app_handle.emit("usage-update", &usage);
         }
@@ -87,8 +101,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(UsageState(Mutex::new(None)))
-        .invoke_handler(tauri::generate_handler![get_usage])
+        .invoke_handler(tauri::generate_handler![get_usage, get_history])
         .setup(|app| {
+            // Initialize SQLite database
+            let app_data_dir = app.path().app_data_dir()
+                .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+            let conn = db::open_database(app_data_dir)
+                .map_err(|e| format!("Database init failed: {e}"))?;
+            app.manage(Database(Mutex::new(conn)));
+
             // Render default tray icon (green bars at 0%)
             let icon_rgba = tray_icon::render_default_icon();
             let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
