@@ -1,6 +1,83 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { listen } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
+  import UsageBar from '$lib/UsageBar.svelte';
+
+  interface PeriodUsage {
+    utilization: number;
+    resets_at: string;
+  }
+
+  interface ExtraUsage {
+    is_enabled: boolean;
+    monthly_limit: number | null;
+    used_credits: number | null;
+    utilization: number | null;
+  }
+
+  interface UsageData {
+    five_hour: PeriodUsage;
+    seven_day: PeriodUsage;
+    extra_usage: ExtraUsage;
+  }
+
+  let usage: UsageData | null = $state(null);
+  let error: string | null = $state(null);
+
+  onMount(() => {
+    let unlistenUpdate: (() => void) | undefined;
+    let unlistenError: (() => void) | undefined;
+
+    // Listen for live updates
+    listen<UsageData>('usage-update', (event) => {
+      usage = event.payload;
+      error = null;
+    }).then((fn) => { unlistenUpdate = fn; });
+
+    listen<string>('usage-error', (event) => {
+      error = event.payload;
+    }).then((fn) => { unlistenError = fn; });
+
+    // Fetch cached data on mount
+    invoke<UsageData | null>('get_usage').then((cached) => {
+      if (cached) usage = cached;
+    }).catch(() => {
+      // No cached data yet, will come via events
+    });
+
+    return () => {
+      unlistenUpdate?.();
+      unlistenError?.();
+    };
+  });
+</script>
+
 <main>
   <h1>ClaudeBar</h1>
-  <p>Usage data will appear here.</p>
+
+  {#if error}
+    <div class="error">
+      {#if error.includes('Keychain') || error.includes('claude login')}
+        Run <code>claude login</code> first
+      {:else}
+        Connection error
+      {/if}
+    </div>
+  {:else if usage}
+    <UsageBar
+      label="5-hour session"
+      utilization={usage.five_hour.utilization}
+      resetsAt={usage.five_hour.resets_at}
+    />
+    <UsageBar
+      label="7-day weekly"
+      utilization={usage.seven_day.utilization}
+      resetsAt={usage.seven_day.resets_at}
+    />
+  {:else}
+    <p class="loading">Loading usage data…</p>
+  {/if}
 </main>
 
 <style>
@@ -16,16 +93,33 @@
 
 main {
   padding: 16px;
+  width: 320px;
+  box-sizing: border-box;
 }
 
 h1 {
   font-size: 16px;
-  margin: 0 0 12px 0;
+  margin: 0 0 16px 0;
   font-weight: 600;
 }
 
-p {
+.error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+}
+
+.error code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.loading {
   margin: 0;
-  opacity: 0.6;
+  opacity: 0.5;
 }
 </style>
