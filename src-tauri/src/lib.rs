@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 use tauri::{
     image::Image,
+    menu::{MenuBuilder, MenuItemBuilder},
     tray::{TrayIconBuilder, TrayIconId},
     Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -19,8 +20,8 @@ const TRAY_ID: &str = "main-tray";
 
 const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
-const POPUP_WIDTH: f64 = 320.0;
-const POPUP_HEIGHT: f64 = 400.0;
+const POPUP_WIDTH: f64 = 300.0;
+const POPUP_HEIGHT: f64 = 380.0;
 const POLL_INTERVAL_SECS: u64 = 60;
 
 /// Tracks which notification thresholds have fired per reset cycle.
@@ -47,7 +48,8 @@ fn maybe_notify(
     body: &str,
     last_reset: &mut Option<String>,
 ) {
-    let pct = (utilization * 100.0) as u8;
+    // utilization comes from API as 0-100 percentage
+    let pct = utilization as u8;
     if pct >= threshold {
         if last_reset.as_deref() != Some(resets_at) {
             let _ = app_handle
@@ -98,9 +100,12 @@ fn get_history(db: tauri::State<'_, Database>, days: Option<i32>) -> Result<Vec<
 
 /// Update the tray icon to reflect current usage levels.
 fn update_tray_icon(app_handle: &tauri::AppHandle, usage: &UsageData) {
+    // API returns utilization as 0-100 percentage, normalize to 0-1
+    let session_util = usage.five_hour.utilization / 100.0;
+    let weekly_util = usage.seven_day.utilization / 100.0;
     let icon_rgba = tray_icon::render_tray_icon(
-        usage.five_hour.utilization,
-        usage.seven_day.utilization,
+        session_util,
+        weekly_util,
         None,
         None,
     );
@@ -139,9 +144,14 @@ fn handle_usage_success(app_handle: &tauri::AppHandle, usage: UsageData) {
 /// Perform a single poll: read keychain, fetch usage, emit events, update state & tray icon.
 /// On 401, attempts token refresh once before giving up.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
+    eprintln!("[ClaudeBar] Polling usage...");
     let credentials = match keychain::read_credentials() {
-        Ok(c) => c,
+        Ok(c) => {
+            eprintln!("[ClaudeBar] Keychain OK, token starts with: {}...", &c.access_token[..20]);
+            c
+        }
         Err(e) => {
+            eprintln!("[ClaudeBar] Keychain error: {e}");
             set_tray_error_icon(app_handle);
             let _ = app_handle.emit("usage-error", e);
             return;
@@ -150,6 +160,7 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
 
     match api::fetch_usage(&credentials.access_token).await {
         Ok(usage) => {
+            eprintln!("[ClaudeBar] Usage fetched: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
             handle_usage_success(app_handle, usage);
         }
         Err(api::ApiError::TokenExpired) => {
@@ -193,6 +204,12 @@ pub fn run() {
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))
         .invoke_handler(tauri::generate_handler![get_usage, get_history])
         .setup(|app| {
+            // Hide dock icon — menubar-only app
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::ActivationPolicy;
+                app.set_activation_policy(ActivationPolicy::Accessory);
+            }
             // Initialize SQLite database
             let app_data_dir = app.path().app_data_dir()
                 .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
@@ -202,20 +219,34 @@ pub fn run() {
 
             // Render default tray icon (green bars at 0%)
             let icon_rgba = tray_icon::render_default_icon();
+            eprintln!("[ClaudeBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
             let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
 
             let app_handle = app.handle().clone();
 
+            // Build a simple context menu for the tray
+            let quit = MenuItemBuilder::with_id("quit", "Quit ClaudeBar").build(app)?;
+            let menu = MenuBuilder::new(app).item(&quit).build()?;
+
+            eprintln!("[ClaudeBar] Building tray icon...");
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(false)
                 .tooltip("ClaudeBar")
+                .menu(&menu)
+                .on_menu_event(|app, event| {
+                    if event.id().as_ref() == "quit" {
+                        app.exit(0);
+                    }
+                })
                 .on_tray_icon_event(move |_tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { .. } = event {
                         toggle_popup(&app_handle);
                     }
                 })
                 .build(app)?;
+
+            eprintln!("[ClaudeBar] Tray icon created successfully!");
 
             // Spawn background polling loop
             let poll_handle = app.handle().clone();

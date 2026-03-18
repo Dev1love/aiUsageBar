@@ -25,6 +25,7 @@
       const snap = snapshotMap.get(dateStr);
       result.push({
         label: dayNames[d.getDay()],
+        // five_hour_util comes from API as 0-100 percentage
         util: snap ? snap.five_hour_util : 0,
         isToday: i === 0,
       });
@@ -33,10 +34,9 @@
   });
 
   function barColor(util: number): string {
-    const pct = Math.round(util * 100);
-    if (pct >= 95) return '#ef4444';
-    if (pct >= 80) return '#facc15';
-    return '#4ade80';
+    if (util >= 95) return '#ef4444';
+    if (util >= 80) return '#f59e0b';
+    return '#34d399';
   }
 
   onMount(() => {
@@ -54,7 +54,7 @@
         <div class="bar-track">
           <div
             class="bar-fill"
-            style="height: {Math.round(day.util * 100)}%; background-color: {barColor(day.util)}"
+            style="height: {Math.min(day.util, 100)}%; background: {barColor(day.util)}"
           ></div>
         </div>
         <span class="day-label">{day.label}</span>
@@ -65,21 +65,23 @@
 
 <style>
   .weekly-chart {
-    margin-top: 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    padding-top: 12px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
   }
   .chart-label {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 500;
-    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+    margin-bottom: 10px;
   }
   .chart {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    height: 80px;
-    gap: 4px;
+    height: 72px;
+    gap: 6px;
   }
   .bar-col {
     display: flex;
@@ -89,30 +91,30 @@
   }
   .bar-track {
     width: 100%;
-    max-width: 30px;
-    height: 60px;
-    background: #2a2a3e;
-    border-radius: 3px;
+    max-width: 28px;
+    height: 52px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
     display: flex;
     align-items: flex-end;
     overflow: hidden;
   }
   .bar-fill {
     width: 100%;
-    border-radius: 3px;
-    transition: height 0.3s ease;
-    min-height: 0;
+    border-radius: 4px;
+    transition: height 0.5s ease;
   }
   .day-label {
     font-size: 10px;
-    opacity: 0.5;
-    margin-top: 4px;
+    opacity: 0.35;
+    margin-top: 6px;
+    font-variant-numeric: tabular-nums;
   }
   .today .day-label {
-    opacity: 1;
+    opacity: 0.9;
     font-weight: 600;
   }
   .today .bar-track {
-    outline: 1px solid rgba(255, 255, 255, 0.15);
+    outline: 1px solid rgba(255, 255, 255, 0.1);
   }
 </style>

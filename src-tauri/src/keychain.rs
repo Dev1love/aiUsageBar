@@ -4,7 +4,7 @@ use serde::Deserialize;
 pub struct KeychainCredentials {
     pub access_token: String,
     pub refresh_token: String,
-    pub expires_at: String,
+    pub expires_at: u64,
 }
 
 #[derive(Deserialize)]
@@ -14,7 +14,7 @@ struct OAuthEntry {
     #[serde(rename = "refreshToken")]
     refresh_token: String,
     #[serde(rename = "expiresAt")]
-    expires_at: String,
+    expires_at: u64,
 }
 
 #[derive(Deserialize)]
@@ -24,21 +24,24 @@ struct KeychainData {
 }
 
 pub fn read_credentials() -> Result<KeychainCredentials, String> {
-    let password = security_framework::passwords::get_generic_password(
-        "Claude Code-credentials",
-        "Claude Code-credentials",
-    )
-    .map_err(|e| {
-        format!(
-            "Could not read Claude Code credentials from macOS Keychain: {e}. \
+    let output = std::process::Command::new("security")
+        .args(["find-generic-password", "-s", "Claude Code-credentials", "-w"])
+        .output()
+        .map_err(|e| format!("Failed to run `security` command: {e}"))?;
+
+    if !output.status.success() {
+        return Err(
+            "Could not read Claude Code credentials from macOS Keychain. \
              Make sure you have logged in with 'claude login'."
-        )
-    })?;
+                .to_string(),
+        );
+    }
 
-    let json_str = String::from_utf8(password.to_vec())
+    let json_str = String::from_utf8(output.stdout)
         .map_err(|e| format!("Keychain value is not valid UTF-8: {e}"))?;
+    let json_str = json_str.trim();
 
-    let data: KeychainData = serde_json::from_str(&json_str)
+    let data: KeychainData = serde_json::from_str(json_str)
         .map_err(|e| format!("Failed to parse keychain JSON: {e}"))?;
 
     Ok(KeychainCredentials {
