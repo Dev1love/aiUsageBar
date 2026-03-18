@@ -13,7 +13,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
-use api::UsageData;
+use api::{AllUsage, UsageData};
 use db::{DailySnapshot, Database};
 
 const TRAY_ID: &str = "main-tray";
@@ -21,7 +21,7 @@ const TRAY_ID: &str = "main-tray";
 const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
 const POPUP_WIDTH: f64 = 300.0;
-const POPUP_HEIGHT: f64 = 380.0;
+const POPUP_HEIGHT: f64 = 520.0;
 const POLL_INTERVAL_SECS: u64 = 60;
 
 /// Tracks which notification thresholds have fired per reset cycle.
@@ -84,10 +84,10 @@ fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
 }
 
 /// Shared state holding the latest usage data.
-struct UsageState(Mutex<Option<UsageData>>);
+struct UsageState(Mutex<Option<AllUsage>>);
 
 #[tauri::command]
-fn get_usage(state: tauri::State<'_, UsageState>) -> Result<Option<UsageData>, String> {
+fn get_usage(state: tauri::State<'_, UsageState>) -> Result<Option<AllUsage>, String> {
     let data = state.0.lock().map_err(|e| e.to_string())?;
     Ok(data.clone())
 }
@@ -124,73 +124,76 @@ fn set_tray_error_icon(app_handle: &tauri::AppHandle) {
     }
 }
 
-/// Handle a successful usage fetch: update state, store snapshot, update tray, notify, emit event.
-fn handle_usage_success(app_handle: &tauri::AppHandle, usage: UsageData) {
+/// Handle successful usage fetch: update state, store snapshot, update tray, notify, emit event.
+fn handle_all_usage(app_handle: &tauri::AppHandle, all: AllUsage) {
+    // Update tray icon based on Claude data (primary) or Codex
+    if let Some(ref claude) = all.claude {
+        update_tray_icon(app_handle, claude);
+        check_and_notify(app_handle, claude);
+        if let Some(db) = app_handle.try_state::<Database>() {
+            if let Ok(conn) = db.0.lock() {
+                db::insert_snapshot(&conn, claude);
+            }
+        }
+    }
+
     if let Some(state) = app_handle.try_state::<UsageState>() {
         if let Ok(mut data) = state.0.lock() {
-            *data = Some(usage.clone());
+            *data = Some(all.clone());
         }
     }
-    if let Some(db) = app_handle.try_state::<Database>() {
-        if let Ok(conn) = db.0.lock() {
-            db::insert_snapshot(&conn, &usage);
-        }
-    }
-    update_tray_icon(app_handle, &usage);
-    check_and_notify(app_handle, &usage);
-    let _ = app_handle.emit("usage-update", &usage);
+    let _ = app_handle.emit("usage-update", &all);
 }
 
-/// Perform a single poll: read keychain, fetch usage, emit events, update state & tray icon.
-/// On 401, attempts token refresh once before giving up.
+/// Perform a single poll for all providers.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
     eprintln!("[aiUsageBar] Polling usage...");
-    let credentials = match keychain::read_credentials() {
-        Ok(c) => {
-            eprintln!("[aiUsageBar] Keychain OK, token starts with: {}...", &c.access_token[..20]);
-            c
-        }
-        Err(e) => {
-            eprintln!("[aiUsageBar] Keychain error: {e}");
-            set_tray_error_icon(app_handle);
-            let _ = app_handle.emit("usage-error", e);
-            return;
-        }
-    };
 
-    match api::fetch_usage(&credentials.access_token).await {
-        Ok(usage) => {
-            eprintln!("[aiUsageBar] Usage fetched: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
-            handle_usage_success(app_handle, usage);
-        }
-        Err(api::ApiError::TokenExpired) => {
-            // Attempt token refresh once
-            match api::refresh_access_token(&credentials.refresh_token).await {
-                Ok(new_token) => {
-                    // Retry with refreshed token
-                    match api::fetch_usage(&new_token).await {
-                        Ok(usage) => {
-                            handle_usage_success(app_handle, usage);
-                        }
-                        Err(e) => {
-                            set_tray_error_icon(app_handle);
-                            let _ = app_handle.emit("usage-error", e.to_string());
+    let mut all = AllUsage {
+        claude: None,
+        codex: None,
+    };
+    let mut any_success = false;
+
+    // Poll Claude
+    match keychain::read_credentials() {
+        Ok(c) => {
+            match api::fetch_usage(&c.access_token).await {
+                Ok(usage) => {
+                    eprintln!("[aiUsageBar] Claude: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
+                    all.claude = Some(usage);
+                    any_success = true;
+                }
+                Err(api::ApiError::TokenExpired) => {
+                    if let Ok(new_token) = api::refresh_access_token(&c.refresh_token).await {
+                        if let Ok(usage) = api::fetch_usage(&new_token).await {
+                            all.claude = Some(usage);
+                            any_success = true;
                         }
                     }
                 }
-                Err(_) => {
-                    set_tray_error_icon(app_handle);
-                    let _ = app_handle.emit(
-                        "usage-error",
-                        "Token expired, run 'claude login' to re-authenticate.".to_string(),
-                    );
-                }
+                Err(e) => eprintln!("[aiUsageBar] Claude error: {e}"),
             }
         }
-        Err(e) => {
-            set_tray_error_icon(app_handle);
-            let _ = app_handle.emit("usage-error", e.to_string());
+        Err(e) => eprintln!("[aiUsageBar] Claude keychain: {e}"),
+    }
+
+    // Poll Codex (runs in blocking thread since it spawns a process)
+    match tokio::task::spawn_blocking(api::fetch_codex_usage).await {
+        Ok(Ok(codex)) => {
+            eprintln!("[aiUsageBar] Codex: primary={:.1}%", codex.primary.utilization);
+            all.codex = Some(codex);
+            any_success = true;
         }
+        Ok(Err(e)) => eprintln!("[aiUsageBar] Codex error: {e}"),
+        Err(e) => eprintln!("[aiUsageBar] Codex task error: {e}"),
+    }
+
+    if any_success {
+        handle_all_usage(app_handle, all);
+    } else {
+        set_tray_error_icon(app_handle);
+        let _ = app_handle.emit("usage-error", "No providers available".to_string());
     }
 }
 

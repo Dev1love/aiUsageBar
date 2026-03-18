@@ -24,14 +24,30 @@
     extra_usage: ExtraUsageData;
   }
 
-  let usage: UsageData | null = $state(null);
+  interface CodexCredits {
+    remaining: number;
+    has_credits: boolean;
+  }
+
+  interface CodexUsageData {
+    primary: PeriodUsage;
+    secondary: PeriodUsage | null;
+    credits: CodexCredits | null;
+  }
+
+  interface AllUsage {
+    claude: UsageData | null;
+    codex: CodexUsageData | null;
+  }
+
+  let usage: AllUsage | null = $state(null);
   let error: string | null = $state(null);
 
   onMount(() => {
     let unlistenUpdate: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
 
-    listen<UsageData>('usage-update', (event) => {
+    listen<AllUsage>('usage-update', (event) => {
       usage = event.payload;
       error = null;
     }).then((fn) => { unlistenUpdate = fn; });
@@ -40,7 +56,7 @@
       error = event.payload;
     }).then((fn) => { unlistenError = fn; });
 
-    invoke<UsageData | null>('get_usage').then((cached) => {
+    invoke<AllUsage | null>('get_usage').then((cached) => {
       if (cached) usage = cached;
     }).catch(() => {});
 
@@ -57,34 +73,64 @@
     <span class="dot" class:online={!error && usage} class:offline={error}></span>
   </header>
 
-  {#if error}
+  {#if error && !usage}
     <div class="error">
       {#if error.includes('Keychain') || error.includes('claude login')}
         <p>Run <code>claude login</code> to connect</p>
       {:else}
-        <p>Connection error</p>
+        <p>{error}</p>
       {/if}
     </div>
   {:else if usage}
-    <div class="bars">
-      <UsageBar
-        label="5-hour session"
-        utilization={usage.five_hour.utilization}
-        resetsAt={usage.five_hour.resets_at}
-      />
-      <UsageBar
-        label="7-day weekly"
-        utilization={usage.seven_day.utilization}
-        resetsAt={usage.seven_day.resets_at}
-      />
-    </div>
-    {#if usage.extra_usage.is_enabled && usage.extra_usage.monthly_limit != null && usage.extra_usage.used_credits != null && usage.extra_usage.utilization != null}
-      <ExtraUsage
-        monthlyLimit={usage.extra_usage.monthly_limit}
-        usedCredits={usage.extra_usage.used_credits}
-        utilization={usage.extra_usage.utilization}
-      />
+    {#if usage.claude}
+      <div class="provider-section">
+        <div class="provider-label">Claude Code</div>
+        <UsageBar
+          label="5-hour session"
+          utilization={usage.claude.five_hour.utilization}
+          resetsAt={usage.claude.five_hour.resets_at}
+        />
+        <UsageBar
+          label="7-day weekly"
+          utilization={usage.claude.seven_day.utilization}
+          resetsAt={usage.claude.seven_day.resets_at}
+        />
+        {#if usage.claude.extra_usage.is_enabled && usage.claude.extra_usage.monthly_limit != null && usage.claude.extra_usage.used_credits != null && usage.claude.extra_usage.utilization != null}
+          <ExtraUsage
+            monthlyLimit={usage.claude.extra_usage.monthly_limit}
+            usedCredits={usage.claude.extra_usage.used_credits}
+            utilization={usage.claude.extra_usage.utilization}
+          />
+        {/if}
+      </div>
     {/if}
+
+    {#if usage.codex}
+      <div class="provider-section">
+        <div class="provider-label">Codex CLI</div>
+        <UsageBar
+          label="5-hour session"
+          utilization={usage.codex.primary.utilization}
+          resetsAt={usage.codex.primary.resets_at}
+        />
+        {#if usage.codex.secondary}
+          <UsageBar
+            label="Weekly"
+            utilization={usage.codex.secondary.utilization}
+            resetsAt={usage.codex.secondary.resets_at}
+          />
+        {/if}
+        {#if usage.codex.credits}
+          <div class="codex-credits">
+            <span class="credits-label">Credits</span>
+            <span class="credits-value" class:low={!usage.codex.credits.has_credits}>
+              ${usage.codex.credits.remaining.toFixed(0)}
+            </span>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <WeeklyChart />
   {:else}
     <div class="loading">
@@ -102,7 +148,8 @@
   color: #e2e2ea;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   font-size: 14px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -116,7 +163,7 @@ header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 h1 {
@@ -142,10 +189,42 @@ h1 {
   background: #ef4444;
 }
 
-.bars {
+.provider-section {
+  margin-bottom: 8px;
+}
+
+.provider-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  opacity: 0.4;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.provider-section + .provider-section {
+  padding-top: 8px;
+}
+
+.codex-credits {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+  opacity: 0.5;
+  margin-top: 4px;
+}
+
+.credits-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #34d399;
+}
+
+.credits-value.low {
+  color: #ef4444;
 }
 
 .error {

@@ -22,6 +22,26 @@ pub struct UsageData {
     pub extra_usage: ExtraUsage,
 }
 
+/// Combined usage from all providers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllUsage {
+    pub claude: Option<UsageData>,
+    pub codex: Option<CodexUsageData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexUsageData {
+    pub primary: PeriodUsage,
+    pub secondary: Option<PeriodUsage>,
+    pub credits: Option<CodexCredits>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodexCredits {
+    pub remaining: f64,
+    pub has_credits: bool,
+}
+
 #[derive(Debug)]
 pub enum ApiError {
     TokenExpired,
@@ -39,8 +59,8 @@ impl fmt::Display for ApiError {
     }
 }
 
-/// Attempt to refresh an expired OAuth access token using the refresh token.
-/// Returns the new access token on success.
+// ── Claude ──
+
 pub async fn refresh_access_token(refresh_token: &str) -> Result<String, ApiError> {
     let client = reqwest::Client::new();
 
@@ -101,4 +121,150 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageData, ApiError> {
         .map_err(|e| ApiError::Parse(e.to_string()))?;
 
     Ok(usage)
+}
+
+// ── Codex ──
+
+pub fn fetch_codex_usage() -> Result<CodexUsageData, String> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::process::{Command, Stdio};
+
+    // Find codex binary
+    let codex_path = find_codex_binary()?;
+
+    let mut child = Command::new(&codex_path)
+        .args(["-s", "read-only", "-a", "untrusted", "app-server"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to launch codex: {e}"))?;
+
+    let mut stdin = child.stdin.take().ok_or("Failed to open codex stdin")?;
+    let stdout = child.stdout.take().ok_or("Failed to open codex stdout")?;
+    let mut reader = BufReader::new(stdout);
+
+    // Send initialize
+    let init_req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientName":"aiUsageBar","clientVersion":"0.1.0"}}"#;
+    writeln!(stdin, "{init_req}").map_err(|e| format!("Failed to write to codex: {e}"))?;
+
+    // Read initialize response
+    let mut line = String::new();
+    reader.read_line(&mut line).map_err(|e| format!("Failed to read codex response: {e}"))?;
+
+    // Send rateLimits request
+    let limits_req = r#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#;
+    writeln!(stdin, "{limits_req}").map_err(|e| format!("Failed to write to codex: {e}"))?;
+
+    // Read rateLimits response
+    line.clear();
+    reader.read_line(&mut line).map_err(|e| format!("Failed to read codex response: {e}"))?;
+
+    // Kill the process
+    let _ = child.kill();
+
+    // Parse response
+    let resp: serde_json::Value = serde_json::from_str(line.trim())
+        .map_err(|e| format!("Failed to parse codex JSON-RPC response: {e}"))?;
+
+    let result = resp.get("result")
+        .ok_or("No result in codex response")?;
+
+    parse_codex_rate_limits(result)
+}
+
+fn find_codex_binary() -> Result<String, String> {
+    // Check common locations
+    let candidates = [
+        // NVM paths
+        format!("{}/.nvm/versions/node/v22.22.1/bin/codex", std::env::var("HOME").unwrap_or_default()),
+        // Common global install
+        "/usr/local/bin/codex".to_string(),
+        "/opt/homebrew/bin/codex".to_string(),
+    ];
+
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.clone());
+        }
+    }
+
+    // Try which
+    let output = std::process::Command::new("which")
+        .arg("codex")
+        .output()
+        .map_err(|e| format!("Failed to find codex: {e}"))?;
+
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Ok(path);
+        }
+    }
+
+    Err("Codex CLI not found. Install with: npm install -g @openai/codex".to_string())
+}
+
+fn parse_codex_rate_limits(result: &serde_json::Value) -> Result<CodexUsageData, String> {
+    // Try to extract usage windows from the result
+    // Format varies — handle both flat and nested structures
+
+    let mut primary = PeriodUsage {
+        utilization: 0.0,
+        resets_at: String::new(),
+    };
+    let mut secondary: Option<PeriodUsage> = None;
+    let mut credits: Option<CodexCredits> = None;
+
+    // Try windows array format
+    if let Some(windows) = result.get("windows").and_then(|v| v.as_array()) {
+        for (i, window) in windows.iter().enumerate() {
+            let used_pct = window.get("usedPercent")
+                .or_else(|| window.get("used_percent"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let resets = window.get("resetsAt")
+                .or_else(|| window.get("resets_at"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            let period = PeriodUsage {
+                utilization: used_pct,
+                resets_at: resets,
+            };
+
+            if i == 0 {
+                primary = period;
+            } else if i == 1 {
+                secondary = Some(period);
+            }
+        }
+    }
+    // Try primary/secondary format
+    else if let Some(p) = result.get("primary") {
+        primary.utilization = p.get("usedPercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        primary.resets_at = p.get("resetsAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        if let Some(s) = result.get("secondary") {
+            secondary = Some(PeriodUsage {
+                utilization: s.get("usedPercent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                resets_at: s.get("resetsAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            });
+        }
+    }
+
+    // Extract credits
+    if let Some(c) = result.get("credits") {
+        credits = Some(CodexCredits {
+            remaining: c.get("remaining").or_else(|| c.get("balance")).and_then(|v| v.as_f64()).unwrap_or(0.0),
+            has_credits: c.get("hasCredits").or_else(|| c.get("has_credits")).and_then(|v| v.as_bool()).unwrap_or(true),
+        });
+    }
+
+    Ok(CodexUsageData {
+        primary,
+        secondary,
+        credits,
+    })
 }
