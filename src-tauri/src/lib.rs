@@ -55,7 +55,7 @@ fn maybe_notify(
             let _ = app_handle
                 .notification()
                 .builder()
-                .title("ClaudeBar")
+                .title("aiUsageBar")
                 .body(body)
                 .show();
             *last_reset = Some(resets_at.to_string());
@@ -144,14 +144,14 @@ fn handle_usage_success(app_handle: &tauri::AppHandle, usage: UsageData) {
 /// Perform a single poll: read keychain, fetch usage, emit events, update state & tray icon.
 /// On 401, attempts token refresh once before giving up.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
-    eprintln!("[ClaudeBar] Polling usage...");
+    eprintln!("[aiUsageBar] Polling usage...");
     let credentials = match keychain::read_credentials() {
         Ok(c) => {
-            eprintln!("[ClaudeBar] Keychain OK, token starts with: {}...", &c.access_token[..20]);
+            eprintln!("[aiUsageBar] Keychain OK, token starts with: {}...", &c.access_token[..20]);
             c
         }
         Err(e) => {
-            eprintln!("[ClaudeBar] Keychain error: {e}");
+            eprintln!("[aiUsageBar] Keychain error: {e}");
             set_tray_error_icon(app_handle);
             let _ = app_handle.emit("usage-error", e);
             return;
@@ -160,7 +160,7 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
 
     match api::fetch_usage(&credentials.access_token).await {
         Ok(usage) => {
-            eprintln!("[ClaudeBar] Usage fetched: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
+            eprintln!("[aiUsageBar] Usage fetched: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
             handle_usage_success(app_handle, usage);
         }
         Err(api::ApiError::TokenExpired) => {
@@ -219,20 +219,20 @@ pub fn run() {
 
             // Render default tray icon (green bars at 0%)
             let icon_rgba = tray_icon::render_default_icon();
-            eprintln!("[ClaudeBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
+            eprintln!("[aiUsageBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
             let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
 
             let app_handle = app.handle().clone();
 
             // Build a simple context menu for the tray
-            let quit = MenuItemBuilder::with_id("quit", "Quit ClaudeBar").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit aiUsageBar").build(app)?;
             let menu = MenuBuilder::new(app).item(&quit).build()?;
 
-            eprintln!("[ClaudeBar] Building tray icon...");
+            eprintln!("[aiUsageBar] Building tray icon...");
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(false)
-                .tooltip("ClaudeBar")
+                .tooltip("aiUsageBar")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     if event.id().as_ref() == "quit" {
@@ -246,7 +246,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            eprintln!("[ClaudeBar] Tray icon created successfully!");
+            eprintln!("[aiUsageBar] Tray icon created successfully!");
 
             // Spawn background polling loop
             let poll_handle = app.handle().clone();
@@ -283,7 +283,7 @@ fn toggle_popup(app: &tauri::AppHandle) {
     } else {
         // Create the popup window
         let builder = WebviewWindowBuilder::new(app, POPUP_LABEL, WebviewUrl::App("index.html".into()))
-            .title("ClaudeBar")
+            .title("aiUsageBar")
             .inner_size(POPUP_WIDTH, POPUP_HEIGHT)
             .decorations(false)
             .resizable(false)

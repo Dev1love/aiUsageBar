@@ -53,7 +53,7 @@
 
 <main>
   <header>
-    <h1>ClaudeBar</h1>
+    <h1>aiUsageBar</h1>
     <span class="dot" class:online={!error && usage} class:offline={error}></span>
   </header>
 
