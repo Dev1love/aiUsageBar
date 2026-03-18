@@ -125,146 +125,98 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageData, ApiError> {
 
 // ── Codex ──
 
-pub fn fetch_codex_usage() -> Result<CodexUsageData, String> {
-    use std::io::{BufRead, BufReader, Write};
-    use std::process::{Command, Stdio};
+pub async fn fetch_codex_usage() -> Result<CodexUsageData, String> {
+    // Read access token from ~/.codex/auth.json
+    let home = std::env::var("HOME").map_err(|_| "HOME not set")?;
+    let auth_path = format!("{home}/.codex/auth.json");
+    let auth_str = std::fs::read_to_string(&auth_path)
+        .map_err(|_| "Codex not logged in (~/.codex/auth.json not found). Run 'codex login'.")?;
+    let auth: serde_json::Value = serde_json::from_str(&auth_str)
+        .map_err(|e| format!("Failed to parse codex auth.json: {e}"))?;
+    let access_token = auth
+        .get("tokens").and_then(|t| t.get("access_token")).and_then(|v| v.as_str())
+        .ok_or("No access_token in codex auth.json")?;
 
-    // Find codex binary
-    let codex_path = find_codex_binary()?;
+    // Call ChatGPT web API for usage
+    let client = reqwest::Client::new();
+    let response = client
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .bearer_auth(access_token)
+        .header("User-Agent", "Mozilla/5.0")
+        .send()
+        .await
+        .map_err(|e| format!("Codex API error: {e}"))?;
 
-    let mut child = Command::new(&codex_path)
-        .args(["-s", "read-only", "-a", "untrusted", "app-server"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("Failed to launch codex: {e}"))?;
-
-    let mut stdin = child.stdin.take().ok_or("Failed to open codex stdin")?;
-    let stdout = child.stdout.take().ok_or("Failed to open codex stdout")?;
-    let mut reader = BufReader::new(stdout);
-
-    // Send initialize
-    let init_req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientName":"aiUsageBar","clientVersion":"0.1.0"}}"#;
-    writeln!(stdin, "{init_req}").map_err(|e| format!("Failed to write to codex: {e}"))?;
-
-    // Read initialize response
-    let mut line = String::new();
-    reader.read_line(&mut line).map_err(|e| format!("Failed to read codex response: {e}"))?;
-
-    // Send rateLimits request
-    let limits_req = r#"{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":{}}"#;
-    writeln!(stdin, "{limits_req}").map_err(|e| format!("Failed to write to codex: {e}"))?;
-
-    // Read rateLimits response
-    line.clear();
-    reader.read_line(&mut line).map_err(|e| format!("Failed to read codex response: {e}"))?;
-
-    // Kill the process
-    let _ = child.kill();
-
-    // Parse response
-    let resp: serde_json::Value = serde_json::from_str(line.trim())
-        .map_err(|e| format!("Failed to parse codex JSON-RPC response: {e}"))?;
-
-    let result = resp.get("result")
-        .ok_or("No result in codex response")?;
-
-    parse_codex_rate_limits(result)
-}
-
-fn find_codex_binary() -> Result<String, String> {
-    // Check common locations
-    let candidates = [
-        // NVM paths
-        format!("{}/.nvm/versions/node/v22.22.1/bin/codex", std::env::var("HOME").unwrap_or_default()),
-        // Common global install
-        "/usr/local/bin/codex".to_string(),
-        "/opt/homebrew/bin/codex".to_string(),
-    ];
-
-    for path in &candidates {
-        if std::path::Path::new(path).exists() {
-            return Ok(path.clone());
-        }
+    if !response.status().is_success() {
+        return Err(format!("Codex API HTTP {}", response.status()));
     }
 
-    // Try which
-    let output = std::process::Command::new("which")
-        .arg("codex")
-        .output()
-        .map_err(|e| format!("Failed to find codex: {e}"))?;
+    let data: serde_json::Value = response.json().await
+        .map_err(|e| format!("Codex parse error: {e}"))?;
 
-    if output.status.success() {
-        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if !path.is_empty() {
-            return Ok(path);
-        }
-    }
-
-    Err("Codex CLI not found. Install with: npm install -g @openai/codex".to_string())
+    parse_wham_usage(&data)
 }
 
-fn parse_codex_rate_limits(result: &serde_json::Value) -> Result<CodexUsageData, String> {
-    // Try to extract usage windows from the result
-    // Format varies — handle both flat and nested structures
+fn parse_wham_usage(data: &serde_json::Value) -> Result<CodexUsageData, String> {
+    let rate_limit = data.get("rate_limit")
+        .ok_or("No rate_limit in Codex response")?;
 
-    let mut primary = PeriodUsage {
-        utilization: 0.0,
-        resets_at: String::new(),
+    let primary_window = rate_limit.get("primary_window")
+        .ok_or("No primary_window")?;
+
+    let primary = PeriodUsage {
+        utilization: primary_window.get("used_percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+        resets_at: timestamp_to_iso(primary_window.get("reset_at").and_then(|v| v.as_i64()).unwrap_or(0)),
     };
-    let mut secondary: Option<PeriodUsage> = None;
-    let mut credits: Option<CodexCredits> = None;
 
-    // Try windows array format
-    if let Some(windows) = result.get("windows").and_then(|v| v.as_array()) {
-        for (i, window) in windows.iter().enumerate() {
-            let used_pct = window.get("usedPercent")
-                .or_else(|| window.get("used_percent"))
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
-            let resets = window.get("resetsAt")
-                .or_else(|| window.get("resets_at"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            let period = PeriodUsage {
-                utilization: used_pct,
-                resets_at: resets,
-            };
-
-            if i == 0 {
-                primary = period;
-            } else if i == 1 {
-                secondary = Some(period);
-            }
-        }
-    }
-    // Try primary/secondary format
-    else if let Some(p) = result.get("primary") {
-        primary.utilization = p.get("usedPercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        primary.resets_at = p.get("resetsAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-        if let Some(s) = result.get("secondary") {
-            secondary = Some(PeriodUsage {
-                utilization: s.get("usedPercent").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                resets_at: s.get("resetsAt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            });
-        }
-    }
-
-    // Extract credits
-    if let Some(c) = result.get("credits") {
-        credits = Some(CodexCredits {
-            remaining: c.get("remaining").or_else(|| c.get("balance")).and_then(|v| v.as_f64()).unwrap_or(0.0),
-            has_credits: c.get("hasCredits").or_else(|| c.get("has_credits")).and_then(|v| v.as_bool()).unwrap_or(true),
+    let secondary = rate_limit.get("secondary_window")
+        .and_then(|w| if w.is_null() { None } else { Some(w) })
+        .map(|w| PeriodUsage {
+            utilization: w.get("used_percent").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            resets_at: timestamp_to_iso(w.get("reset_at").and_then(|v| v.as_i64()).unwrap_or(0)),
         });
-    }
+
+    let credits = data.get("credits").map(|c| {
+        let balance_str = c.get("balance").and_then(|v| v.as_str()).unwrap_or("0");
+        CodexCredits {
+            remaining: balance_str.parse::<f64>().unwrap_or(0.0),
+            has_credits: c.get("has_credits").and_then(|v| v.as_bool()).unwrap_or(false),
+        }
+    });
 
     Ok(CodexUsageData {
         primary,
         secondary,
         credits,
     })
+}
+
+fn timestamp_to_iso(ts: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    let dt = UNIX_EPOCH + Duration::from_secs(ts as u64);
+    // Format as ISO 8601
+    let secs = dt.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+    let days = secs / 86400;
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+    // Simple epoch to date calculation
+    let (year, month, day) = epoch_days_to_ymd(days as i64);
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}Z")
+}
+
+fn epoch_days_to_ymd(days: i64) -> (i32, u32, u32) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m, d)
 }

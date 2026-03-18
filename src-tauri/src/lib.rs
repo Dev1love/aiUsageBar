@@ -178,15 +178,14 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
         Err(e) => eprintln!("[aiUsageBar] Claude keychain: {e}"),
     }
 
-    // Poll Codex (runs in blocking thread since it spawns a process)
-    match tokio::task::spawn_blocking(api::fetch_codex_usage).await {
-        Ok(Ok(codex)) => {
+    // Poll Codex
+    match api::fetch_codex_usage().await {
+        Ok(codex) => {
             eprintln!("[aiUsageBar] Codex: primary={:.1}%", codex.primary.utilization);
             all.codex = Some(codex);
             any_success = true;
         }
-        Ok(Err(e)) => eprintln!("[aiUsageBar] Codex error: {e}"),
-        Err(e) => eprintln!("[aiUsageBar] Codex task error: {e}"),
+        Err(e) => eprintln!("[aiUsageBar] Codex error: {e}"),
     }
 
     if any_success {
