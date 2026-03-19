@@ -108,6 +108,10 @@ pub async fn fetch_usage(access_token: &str) -> Result<UsageData, ApiError> {
         return Err(ApiError::TokenExpired);
     }
 
+    if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return Err(ApiError::Network("Rate limited (429). Will retry next cycle.".to_string()));
+    }
+
     if !response.status().is_success() {
         return Err(ApiError::Network(format!(
             "HTTP {} from usage API",

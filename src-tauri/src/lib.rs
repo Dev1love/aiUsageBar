@@ -22,7 +22,7 @@ const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
 const POPUP_WIDTH: f64 = 300.0;
 const POPUP_HEIGHT: f64 = 520.0;
-const POLL_INTERVAL_SECS: u64 = 60;
+const POLL_INTERVAL_SECS: u64 = 300; // 5 minutes
 
 /// Tracks which notification thresholds have fired per reset cycle.
 #[derive(Default)]
@@ -147,7 +147,7 @@ fn handle_all_usage(app_handle: &tauri::AppHandle, all: AllUsage) {
 
 /// Perform a single poll for all providers.
 async fn poll_usage(app_handle: &tauri::AppHandle) {
-    eprintln!("[aiUsageBar] Polling usage...");
+    // eprintln!("[aiUsageBar] Polling usage...");
 
     let mut all = AllUsage {
         claude: None,
@@ -160,7 +160,7 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
         Ok(c) => {
             match api::fetch_usage(&c.access_token).await {
                 Ok(usage) => {
-                    eprintln!("[aiUsageBar] Claude: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
+                    // eprintln!("[aiUsageBar] Claude: 5h={:.1}%, 7d={:.1}%", usage.five_hour.utilization, usage.seven_day.utilization);
                     all.claude = Some(usage);
                     any_success = true;
                 }
@@ -172,20 +172,20 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
                         }
                     }
                 }
-                Err(e) => eprintln!("[aiUsageBar] Claude error: {e}"),
+                Err(e) => // eprintln!("[aiUsageBar] Claude error: {e}"),
             }
         }
-        Err(e) => eprintln!("[aiUsageBar] Claude keychain: {e}"),
+        Err(e) => // eprintln!("[aiUsageBar] Claude keychain: {e}"),
     }
 
     // Poll Codex
     match api::fetch_codex_usage().await {
         Ok(codex) => {
-            eprintln!("[aiUsageBar] Codex: primary={:.1}%", codex.primary.utilization);
+            // eprintln!("[aiUsageBar] Codex: primary={:.1}%", codex.primary.utilization);
             all.codex = Some(codex);
             any_success = true;
         }
-        Err(e) => eprintln!("[aiUsageBar] Codex error: {e}"),
+        Err(e) => // eprintln!("[aiUsageBar] Codex error: {e}"),
     }
 
     if any_success {
@@ -221,7 +221,7 @@ pub fn run() {
 
             // Render default tray icon (green bars at 0%)
             let icon_rgba = tray_icon::render_default_icon();
-            eprintln!("[aiUsageBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
+            // eprintln!("[aiUsageBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
             let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
 
             let app_handle = app.handle().clone();
@@ -230,7 +230,7 @@ pub fn run() {
             let quit = MenuItemBuilder::with_id("quit", "Quit aiUsageBar").build(app)?;
             let menu = MenuBuilder::new(app).item(&quit).build()?;
 
-            eprintln!("[aiUsageBar] Building tray icon...");
+            // eprintln!("[aiUsageBar] Building tray icon...");
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(false)
@@ -248,7 +248,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            eprintln!("[aiUsageBar] Tray icon created successfully!");
+            // eprintln!("[aiUsageBar] Tray icon created successfully!");
 
             // Spawn background polling loop
             let poll_handle = app.handle().clone();
