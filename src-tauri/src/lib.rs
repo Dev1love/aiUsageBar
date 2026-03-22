@@ -2,6 +2,7 @@ mod api;
 mod db;
 mod keychain;
 mod settings;
+mod system_monitor;
 mod tray_icon;
 
 use std::sync::Mutex;
@@ -17,6 +18,7 @@ use tauri_plugin_notification::NotificationExt;
 
 use api::{AllUsage, UsageData};
 use db::{DailySnapshot, Database};
+use system_monitor::SystemMetrics;
 
 const TRAY_ID: &str = "main-tray";
 
@@ -90,6 +92,8 @@ struct UsageState(Mutex<Option<AllUsage>>);
 
 struct SettingsState(RwLock<settings::UserSettings>);
 
+struct SystemState(std::sync::RwLock<SystemMetrics>);
+
 #[tauri::command]
 fn get_settings(state: tauri::State<'_, SettingsState>) -> Result<settings::UserSettings, String> {
     let s = state.0.read().map_err(|e| e.to_string())?;
@@ -108,6 +112,12 @@ fn save_settings_cmd(
     let mut s = state.0.write().map_err(|e| e.to_string())?;
     *s = new_settings;
     Ok(())
+}
+
+#[tauri::command]
+fn get_system_metrics(state: tauri::State<'_, SystemState>) -> Result<SystemMetrics, String> {
+    let m = state.0.read().map_err(|e| e.to_string())?;
+    Ok(m.clone())
 }
 
 #[tauri::command]
@@ -228,7 +238,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(UsageState(Mutex::new(None)))
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))
-        .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd])
+        .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd, get_system_metrics])
         .setup(|app| {
             // Hide dock icon — menubar-only app
             #[cfg(target_os = "macos")]
@@ -308,6 +318,64 @@ pub fn run() {
                 loop {
                     interval.tick().await;
                     poll_usage(&poll_handle).await;
+                }
+            });
+
+            app.manage(SystemState(std::sync::RwLock::new(SystemMetrics::default())));
+
+            // Spawn system metrics polling loop
+            let sys_handle = app.handle().clone();
+            let sys_settings = app.state::<SettingsState>().0.read().unwrap().clone();
+            let sys_interval = sys_settings.polling.system_interval_sec;
+            tauri::async_runtime::spawn(async move {
+                let mut sys = sysinfo::System::new();
+                let mut networks = sysinfo::Networks::new_with_refreshed_list();
+                let mut net_tracker = system_monitor::NetworkTracker::new();
+                // Initial CPU refresh needs two calls (first returns 0)
+                sys.refresh_cpu_usage();
+                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+                let mut tick_count: u64 = 0;
+                let mut interval = tokio::time::interval(
+                    tokio::time::Duration::from_secs(sys_interval),
+                );
+
+                loop {
+                    interval.tick().await;
+                    tick_count += 1;
+
+                    let (cpu, ram, disk, net) = system_monitor::refresh_sysinfo_metrics(
+                        &mut sys, &mut networks, &mut net_tracker, sys_interval,
+                    );
+
+                    // Battery: refresh every 30 seconds (slow-changing)
+                    let battery = if tick_count % (30 / sys_interval).max(1) == 0 || tick_count == 1 {
+                        system_monitor::read_battery()
+                    } else {
+                        if let Some(state) = sys_handle.try_state::<SystemState>() {
+                            state.0.read().ok().and_then(|m| m.battery.clone())
+                        } else {
+                            None
+                        }
+                    };
+
+                    let metrics = SystemMetrics {
+                        cpu,
+                        ram,
+                        disk,
+                        network: net,
+                        battery,
+                        temps: vec![],
+                        fans: vec![],
+                        bluetooth: vec![],
+                    };
+
+                    if let Some(state) = sys_handle.try_state::<SystemState>() {
+                        if let Ok(mut m) = state.0.write() {
+                            *m = metrics.clone();
+                        }
+                    }
+                    let _ = sys_handle.emit("system-update", &metrics);
                 }
             });
 
