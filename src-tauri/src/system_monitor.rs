@@ -156,12 +156,21 @@ pub fn read_battery() -> Option<BatteryMetrics> {
     use battery::units::time::minute;
 
     let soc = batt.state_of_charge().get::<percent>();
-    let soh = batt.state_of_health().get::<percent>();
+    let mut soh = batt.state_of_health().get::<percent>();
+
+    // battery crate often returns wrong health on Apple Silicon — fallback to system_profiler
+    if soh < 50.0 {
+        soh = read_health_from_system_profiler().unwrap_or(soh);
+    }
+
+    let cycle_count = batt.cycle_count().unwrap_or_else(|| {
+        read_cycle_count_from_ioreg().unwrap_or(0)
+    });
 
     Some(BatteryMetrics {
         percent: soc,
         health_percent: soh,
-        cycle_count: batt.cycle_count().unwrap_or(0),
+        cycle_count,
         charging,
         time_to_full: if charging {
             batt.time_to_full().map(|t| t.get::<minute>() as f64)
@@ -174,4 +183,37 @@ pub fn read_battery() -> Option<BatteryMetrics> {
             None
         },
     })
+}
+
+fn read_health_from_system_profiler() -> Option<f32> {
+    let output = std::process::Command::new("system_profiler")
+        .args(["SPPowerDataType", "-json"])
+        .output()
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    let power_data = json.get("SPPowerDataType")?.as_array()?.first()?;
+    let health_info = power_data.get("sppower_battery_health_info")?;
+    // "Maximum Capacity" is reported as a percentage string like "96%"
+    let max_capacity = health_info.get("sppower_battery_max_capacity")?
+        .as_str()?
+        .trim_end_matches('%')
+        .parse::<f32>()
+        .ok()?;
+    Some(max_capacity)
+}
+
+fn read_cycle_count_from_ioreg() -> Option<u32> {
+    let output = std::process::Command::new("ioreg")
+        .args(["-l", "-w0"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        if line.contains("CycleCount") && !line.contains("DesignCycleCount") {
+            if let Some(val) = line.split('=').last() {
+                return val.trim().parse::<u32>().ok();
+            }
+        }
+    }
+    None
 }

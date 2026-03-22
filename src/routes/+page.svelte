@@ -42,7 +42,7 @@
 
     invoke<UserSettings>('get_settings').then((s) => {
       currentSettings = s;
-    }).catch(() => {});
+    }).catch((e) => { console.error('Failed to load settings:', e); });
 
     return () => {
       unlistenUpdate?.();
@@ -57,7 +57,16 @@
     <h1>VibeUsageBar</h1>
     <div class="header-right">
       <span class="dot" class:online={!error && usage} class:offline={error}></span>
-      <button class="gear-btn" aria-label="Settings" onclick={() => showSettings = !showSettings}>
+      <button class="gear-btn" aria-label="Settings" onclick={() => {
+        if (!showSettings && !currentSettings) {
+          invoke<UserSettings>('get_settings').then((s) => {
+            currentSettings = s;
+            showSettings = true;
+          }).catch((e) => { console.error('Failed to load settings on open:', e); showSettings = true; });
+        } else {
+          showSettings = !showSettings;
+        }
+      }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -66,12 +75,19 @@
     </div>
   </header>
 
-  {#if showSettings && currentSettings}
-    <SettingsPage
-      settings={currentSettings}
-      onClose={() => showSettings = false}
-      onSave={(s) => { currentSettings = s; showSettings = false; }}
-    />
+  {#if showSettings}
+    {#if currentSettings}
+      <SettingsPage
+        settings={currentSettings}
+        onClose={() => showSettings = false}
+        onSave={(s) => { currentSettings = s; showSettings = false; }}
+      />
+    {:else}
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Loading settings...</p>
+      </div>
+    {/if}
   {:else if error && !usage}
     <div class="error">
       {#if error.includes('Keychain') || error.includes('claude login')}

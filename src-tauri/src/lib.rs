@@ -361,7 +361,17 @@ pub fn run() {
                         }
                     };
 
+                    if tick_count == 1 {
+                        #[cfg(has_swift_dylib)]
+                        eprintln!("[VibeUsageBar] Swift dylib available");
+                        #[cfg(not(has_swift_dylib))]
+                        eprintln!("[VibeUsageBar] Swift dylib NOT available — temps/fans/bluetooth will be empty");
+                    }
+
                     let (temps, fans) = swift_bridge::get_smc_data();
+                    if tick_count == 1 && temps.is_empty() && fans.is_empty() {
+                        eprintln!("[VibeUsageBar] SMC returned no data - dylib may not be loaded or SMC access denied");
+                    }
 
                     let bluetooth = if tick_count % (10 / sys_interval).max(1) == 0 || tick_count == 1 {
                         swift_bridge::get_bluetooth_devices()
@@ -372,6 +382,11 @@ pub fn run() {
                             vec![]
                         }
                     };
+
+                    if tick_count == 1 {
+                        eprintln!("[VibeUsageBar] System metrics tick 1: {} temps, {} fans, {} bt devices",
+                            temps.len(), fans.len(), bluetooth.len());
+                    }
 
                     let metrics = SystemMetrics {
                         cpu,
