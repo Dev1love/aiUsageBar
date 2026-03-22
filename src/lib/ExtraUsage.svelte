@@ -20,8 +20,9 @@
     'var(--accent-glow)'
   );
 
-  let usedFormatted = $derived(`$${usedCredits.toFixed(0)}`);
-  let limitFormatted = $derived(`$${monthlyLimit.toFixed(0)}`);
+  // API returns credits in cents, convert to dollars
+  let usedFormatted = $derived(`$${(usedCredits / 100).toFixed(2)}`);
+  let limitFormatted = $derived(`$${(monthlyLimit / 100).toFixed(0)}`);
 </script>
 
 <div class="extra-usage">
