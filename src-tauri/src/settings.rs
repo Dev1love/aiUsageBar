@@ -17,7 +17,7 @@ pub struct UserSettings {
 }
 
 fn default_theme() -> String {
-    "hacker".into()
+    "glass".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +56,7 @@ impl Default for UserSettings {
 
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
-            theme: "hacker".into(),
+            theme: "glass".into(),
             tray: TraySettings {
                 items: vec!["cpu".into(), "temp_cpu".into(), "battery".into()],
                 separator: " | ".into(),

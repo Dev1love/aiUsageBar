@@ -21,7 +21,7 @@
 
   onMount(() => {
     // Apply default theme immediately
-    applyTheme('hacker');
+    applyTheme('glass');
     let unlistenUpdate: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
     let unlistenSystem: (() => void) | undefined;
@@ -153,6 +153,8 @@
       {/if}
     </SystemSection>
 
+    <WeeklyChart />
+
     {#if systemMetrics}
       <SystemSection title="Compute">
         <UsageBar label="CPU" utilization={systemMetrics.cpu.overall} />
@@ -201,8 +203,6 @@
         </SystemSection>
       {/if}
     {/if}
-
-    <WeeklyChart />
   {:else}
     <div class="loading">
       <div class="spinner"></div>

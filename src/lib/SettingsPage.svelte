@@ -11,15 +11,16 @@
   } = $props();
 
   const initialSettings = JSON.parse(JSON.stringify(settings));
-  if (!initialSettings.theme) initialSettings.theme = 'hacker';
+  if (!initialSettings.theme) initialSettings.theme = 'glass';
   let local = $state(initialSettings);
 
   const themeOptions = [
+    { key: 'glass', label: 'Glass', bg: 'rgba(30,30,30,0.55)', accent: 'rgba(255,255,255,0.85)' },
+    { key: 'glass-blue', label: 'Glass Blue', bg: 'rgba(15,25,60,0.5)', accent: 'rgba(120,180,255,0.9)' },
     { key: 'hacker', label: 'Hacker', bg: '#000000', accent: '#00ff41' },
     { key: 'midnight', label: 'Midnight', bg: '#0f0f1a', accent: '#34d399' },
     { key: 'cyberpunk', label: 'Cyberpunk', bg: '#0d0011', accent: '#bf5af2' },
     { key: 'frost', label: 'Frost', bg: '#f0f4f8', accent: '#3182ce' },
-    { key: 'glass', label: 'Glass', bg: 'rgba(30,30,30,0.55)', accent: 'rgba(255,255,255,0.85)' },
   ];
 
   function previewTheme(key: string) {

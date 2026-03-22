@@ -1,4 +1,36 @@
 export const themes = {
+  glass: {
+    bg: 'rgba(30, 30, 30, 0.55)',
+    'bg-secondary': 'rgba(255, 255, 255, 0.06)',
+    text: 'rgba(255, 255, 255, 0.9)',
+    'text-dim': 'rgba(255, 255, 255, 0.35)',
+    accent: 'rgba(255, 255, 255, 0.85)',
+    'accent-glow': 'rgba(255, 255, 255, 0.15)',
+    warning: '#ffcc00',
+    danger: '#ff453a',
+    border: 'rgba(255, 255, 255, 0.12)',
+    track: 'rgba(255, 255, 255, 0.08)',
+    'btn-hover': 'rgba(255, 255, 255, 0.06)',
+    'net-down': 'rgba(48, 209, 88, 0.9)',
+    'net-up': 'rgba(100, 210, 255, 0.9)',
+    backdrop: 'saturate(180%) blur(20px)',
+  },
+  'glass-blue': {
+    bg: 'rgba(15, 25, 60, 0.5)',
+    'bg-secondary': 'rgba(100, 160, 255, 0.06)',
+    text: 'rgba(220, 230, 255, 0.92)',
+    'text-dim': 'rgba(180, 200, 255, 0.4)',
+    accent: 'rgba(120, 180, 255, 0.9)',
+    'accent-glow': 'rgba(80, 140, 255, 0.2)',
+    warning: '#ffcc00',
+    danger: '#ff453a',
+    border: 'rgba(100, 160, 255, 0.12)',
+    track: 'rgba(100, 160, 255, 0.08)',
+    'btn-hover': 'rgba(100, 160, 255, 0.08)',
+    'net-down': 'rgba(48, 209, 88, 0.9)',
+    'net-up': 'rgba(140, 200, 255, 0.95)',
+    backdrop: 'saturate(180%) blur(20px)',
+  },
   hacker: {
     bg: '#000000',
     'bg-secondary': '#0a0a0a',
@@ -59,22 +91,6 @@ export const themes = {
     'net-down': '#38a169',
     'net-up': '#3182ce',
   },
-  glass: {
-    bg: 'rgba(30, 30, 30, 0.55)',
-    'bg-secondary': 'rgba(255, 255, 255, 0.06)',
-    text: 'rgba(255, 255, 255, 0.9)',
-    'text-dim': 'rgba(255, 255, 255, 0.35)',
-    accent: 'rgba(255, 255, 255, 0.85)',
-    'accent-glow': 'rgba(255, 255, 255, 0.15)',
-    warning: '#ffcc00',
-    danger: '#ff453a',
-    border: 'rgba(255, 255, 255, 0.12)',
-    track: 'rgba(255, 255, 255, 0.08)',
-    'btn-hover': 'rgba(255, 255, 255, 0.06)',
-    'net-down': 'rgba(48, 209, 88, 0.9)',
-    'net-up': 'rgba(100, 210, 255, 0.9)',
-    backdrop: 'saturate(180%) blur(20px)',
-  },
 } as const;
 
 export type ThemeName = keyof typeof themes;
@@ -84,7 +100,7 @@ const allKeys = ['bg', 'bg-secondary', 'text', 'text-dim', 'accent', 'accent-glo
   'warning', 'danger', 'border', 'track', 'btn-hover', 'net-down', 'net-up', 'backdrop'];
 
 export function applyTheme(name: ThemeName) {
-  const theme = themes[name] || themes.hacker;
+  const theme = themes[name] || themes.glass;
   const root = document.documentElement;
   const entries = theme as Record<string, string>;
   for (const key of allKeys) {
