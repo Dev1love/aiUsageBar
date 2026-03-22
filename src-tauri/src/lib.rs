@@ -5,6 +5,7 @@ mod settings;
 mod swift_bridge;
 mod system_monitor;
 mod tray_icon;
+mod tray_text;
 
 use std::sync::Mutex;
 use std::sync::RwLock;
@@ -389,6 +390,19 @@ pub fn run() {
                         }
                     }
                     let _ = sys_handle.emit("system-update", &metrics);
+
+                    // Update tray title
+                    if let Some(settings_state) = sys_handle.try_state::<SettingsState>() {
+                        if let Ok(settings) = settings_state.0.read() {
+                            let ai = sys_handle.try_state::<UsageState>()
+                                .and_then(|s| s.0.lock().ok().map(|d| d.clone()))
+                                .flatten();
+                            let title = tray_text::format_tray_title(&settings.tray, &metrics, &ai);
+                            if let Some(tray) = sys_handle.tray_by_id(&tauri::tray::TrayIconId::new(TRAY_ID)) {
+                                let _ = tray.set_title(Some(&title));
+                            }
+                        }
+                    }
                 }
             });
 
