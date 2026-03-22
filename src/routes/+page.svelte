@@ -11,6 +11,7 @@
   import SettingsPage from '$lib/SettingsPage.svelte';
   import type { AllUsage, SystemMetrics, UserSettings } from '$lib/types';
   import NetworkSpeed from '$lib/NetworkSpeed.svelte';
+  import { applyTheme, type ThemeName } from '$lib/themes';
 
   let usage: AllUsage | null = $state(null);
   let showSettings = $state(false);
@@ -19,6 +20,8 @@
   let currentSettings: UserSettings | null = $state(null);
 
   onMount(() => {
+    // Apply default theme immediately
+    applyTheme('hacker');
     let unlistenUpdate: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
     let unlistenSystem: (() => void) | undefined;
@@ -42,6 +45,7 @@
 
     invoke<UserSettings>('get_settings').then((s) => {
       currentSettings = s;
+      if (s.theme) applyTheme(s.theme as ThemeName);
     }).catch((e) => { console.error('Failed to load settings:', e); });
 
     return () => {
@@ -81,7 +85,7 @@
         settings={currentSettings}
         {systemMetrics}
         onClose={() => showSettings = false}
-        onSave={(s) => { currentSettings = s; showSettings = false; }}
+        onSave={(s) => { currentSettings = s; if (s.theme) applyTheme(s.theme as ThemeName); showSettings = false; }}
       />
     {:else}
       <div class="loading">
@@ -211,8 +215,8 @@
 :global(body) {
   margin: 0;
   padding: 0;
-  background-color: #0f0f1a;
-  color: #e2e2ea;
+  background-color: var(--bg);
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   font-size: 14px;
   overflow-x: hidden;
@@ -244,16 +248,16 @@ h1 {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #555;
+  background: var(--text-dim);
 }
 
 .dot.online {
-  background: #34d399;
-  box-shadow: 0 0 6px rgba(52, 211, 153, 0.4);
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent-glow);
 }
 
 .dot.offline {
-  background: #ef4444;
+  background: var(--danger);
 }
 
 .provider-block {
@@ -265,10 +269,10 @@ h1 {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  opacity: 0.4;
+  color: var(--text-dim);
   margin-bottom: 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border);
 }
 
 .provider-block + .provider-block {
@@ -284,7 +288,7 @@ h1 {
 .gear-btn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--text-dim);
   cursor: pointer;
   padding: 4px;
   border-radius: 4px;
@@ -293,8 +297,8 @@ h1 {
 }
 
 .gear-btn:hover {
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  background: var(--btn-hover);
 }
 
 .codex-credits {
@@ -302,18 +306,18 @@ h1 {
   justify-content: space-between;
   align-items: baseline;
   font-size: 12px;
-  opacity: 0.5;
+  color: var(--text-dim);
   margin-top: 4px;
 }
 
 .credits-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: #34d399;
+  color: var(--accent);
 }
 
 .credits-value.low {
-  color: #ef4444;
+  color: var(--danger);
 }
 
 .error {
@@ -327,11 +331,11 @@ h1 {
 .error p {
   margin: 0;
   font-size: 13px;
-  opacity: 0.7;
+  color: var(--text-dim);
 }
 
 .error code {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--btn-hover);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 12px;
@@ -348,14 +352,14 @@ h1 {
 .loading p {
   margin: 0;
   font-size: 13px;
-  opacity: 0.4;
+  color: var(--text-dim);
 }
 
 .spinner {
   width: 20px;
   height: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #34d399;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -366,7 +370,7 @@ h1 {
 
 .metric-detail {
   font-size: 11px;
-  opacity: 0.4;
+  color: var(--text-dim);
   text-align: right;
   margin-top: -8px;
   margin-bottom: 8px;
@@ -385,10 +389,10 @@ h1 {
   font-weight: 700;
   font-size: 18px;
   font-variant-numeric: tabular-nums;
-  color: #34d399;
+  color: var(--accent);
 }
 .battery-detail {
   font-size: 11px;
-  opacity: 0.4;
+  color: var(--text-dim);
 }
 </style>

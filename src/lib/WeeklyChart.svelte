@@ -34,9 +34,9 @@
   });
 
   function barColor(util: number): string {
-    if (util >= 95) return '#ef4444';
-    if (util >= 80) return '#f59e0b';
-    return '#34d399';
+    if (util >= 95) return 'var(--danger)';
+    if (util >= 80) return 'var(--warning)';
+    return 'var(--accent)';
   }
 
   onMount(() => {
@@ -66,14 +66,14 @@
 <style>
   .weekly-chart {
     padding-top: 14px;
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid var(--border);
   }
   .chart-label {
     font-size: 12px;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    opacity: 0.7;
+    color: var(--text-dim);
     margin-bottom: 10px;
   }
   .chart {
@@ -93,7 +93,7 @@
     width: 100%;
     max-width: 28px;
     height: 52px;
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--track);
     border-radius: 4px;
     display: flex;
     align-items: flex-end;
@@ -106,15 +106,15 @@
   }
   .day-label {
     font-size: 10px;
-    opacity: 0.35;
+    color: var(--text-dim);
     margin-top: 6px;
     font-variant-numeric: tabular-nums;
   }
   .today .day-label {
-    opacity: 0.9;
+    color: var(--text);
     font-weight: 600;
   }
   .today .bar-track {
-    outline: 1px solid rgba(255, 255, 255, 0.1);
+    outline: 1px solid var(--border);
   }
 </style>

@@ -22,9 +22,9 @@
 <style>
   .bt-list { display: flex; flex-direction: column; gap: 6px; }
   .bt-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-  .bt-dot { width: 6px; height: 6px; border-radius: 50%; background: #555; flex-shrink: 0; }
-  .bt-dot.connected { background: #34d399; }
+  .bt-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+  .bt-dot.connected { background: var(--accent); }
   .bt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bt-battery { font-variant-numeric: tabular-nums; opacity: 0.5; font-size: 12px; }
-  .bt-empty { font-size: 12px; opacity: 0.3; }
+  .bt-battery { font-variant-numeric: tabular-nums; color: var(--text-dim); font-size: 12px; }
+  .bt-empty { font-size: 12px; color: var(--text-dim); }
 </style>

@@ -17,15 +17,15 @@
   let percent = $derived(Math.round(utilization));
 
   let barColor = $derived(
-    utilization >= 95 ? '#ef4444' :
-    utilization >= 80 ? '#f59e0b' :
-    '#34d399'
+    utilization >= 95 ? 'var(--danger)' :
+    utilization >= 80 ? 'var(--warning)' :
+    'var(--accent)'
   );
 
   let barGlow = $derived(
     utilization >= 95 ? 'rgba(239, 68, 68, 0.3)' :
     utilization >= 80 ? 'rgba(245, 158, 11, 0.3)' :
-    'rgba(52, 211, 153, 0.15)'
+    'var(--accent-glow)'
   );
 
   let countdown = $derived.by(() => {
@@ -72,7 +72,7 @@
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    opacity: 0.7;
+    color: var(--text-dim);
   }
   .percent {
     font-size: 18px;
@@ -81,7 +81,7 @@
   }
   .track {
     height: 6px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--track);
     border-radius: 3px;
     overflow: hidden;
   }
@@ -98,6 +98,6 @@
   }
   .reset {
     font-size: 11px;
-    opacity: 0.4;
+    color: var(--text-dim);
   }
 </style>

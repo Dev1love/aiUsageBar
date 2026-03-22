@@ -22,7 +22,7 @@
   }
   .section-header {
     padding-bottom: 6px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--border);
     margin-bottom: 10px;
   }
   .section-title {
@@ -30,7 +30,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.8px;
-    opacity: 0.4;
+    color: var(--text-dim);
   }
   .section-body {
     padding: 0;

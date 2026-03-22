@@ -118,6 +118,7 @@ export interface PopupSettings {
 
 export interface UserSettings {
   schema_version: number;
+  theme: string;
   tray: TraySettings;
   polling: PollingSettings;
   popup: PopupSettings;

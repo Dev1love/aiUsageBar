@@ -25,6 +25,6 @@
     font-variant-numeric: tabular-nums;
     padding: 2px 0;
   }
-  .down { color: #34d399; }
-  .up { color: #60a5fa; }
+  .down { color: var(--net-down); }
+  .up { color: var(--net-up); }
 </style>

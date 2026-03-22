@@ -7,9 +7,9 @@
   } = $props();
 
   function tempColor(value: number): string {
-    if (value >= 80) return '#ef4444';
-    if (value >= 50) return '#f59e0b';
-    return '#34d399';
+    if (value >= 80) return 'var(--danger)';
+    if (value >= 50) return 'var(--warning)';
+    return 'var(--accent)';
   }
 </script>
 
@@ -40,7 +40,7 @@
   .hardware-metrics { display: flex; flex-direction: column; gap: 6px; }
   .temps-row { display: flex; flex-wrap: wrap; gap: 12px; }
   .temp-item { display: flex; gap: 6px; align-items: baseline; }
-  .temp-label { font-size: 12px; opacity: 0.5; }
+  .temp-label { font-size: 12px; color: var(--text-dim); }
   .temp-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .fans-row { display: flex; gap: 12px; font-size: 12px; opacity: 0.5; }
+  .fans-row { display: flex; gap: 12px; font-size: 12px; color: var(--text-dim); }
 </style>

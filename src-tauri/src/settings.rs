@@ -9,9 +9,15 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     pub schema_version: u32,
+    #[serde(default = "default_theme")]
+    pub theme: String,
     pub tray: TraySettings,
     pub polling: PollingSettings,
     pub popup: PopupSettings,
+}
+
+fn default_theme() -> String {
+    "hacker".into()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +56,7 @@ impl Default for UserSettings {
 
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
+            theme: "hacker".into(),
             tray: TraySettings {
                 items: vec!["cpu".into(), "temp_cpu".into(), "battery".into()],
                 separator: " | ".into(),

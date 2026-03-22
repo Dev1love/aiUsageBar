@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import type { UserSettings, SystemMetrics } from '$lib/types';
+  import { applyTheme, type ThemeName } from '$lib/themes';
 
   let { settings, systemMetrics, onClose, onSave }: {
     settings: UserSettings;
@@ -9,7 +10,19 @@
     onSave: (s: UserSettings) => void;
   } = $props();
 
-  let local = $state(JSON.parse(JSON.stringify(settings)));
+  let local = $state({ ...JSON.parse(JSON.stringify(settings)), theme: settings.theme || 'hacker' });
+  let originalTheme = settings.theme || 'hacker';
+
+  const themeOptions = [
+    { key: 'hacker', label: 'Hacker', bg: '#000000', accent: '#00ff41' },
+    { key: 'midnight', label: 'Midnight', bg: '#0f0f1a', accent: '#34d399' },
+    { key: 'cyberpunk', label: 'Cyberpunk', bg: '#0d0011', accent: '#bf5af2' },
+    { key: 'frost', label: 'Frost', bg: '#f0f4f8', accent: '#3182ce' },
+  ];
+
+  function previewTheme(key: string) {
+    applyTheme(key as ThemeName);
+  }
 
   // Determine which items are available based on current system metrics
   let disabledItems = $derived.by(() => {
@@ -76,8 +89,25 @@
 
 <div class="settings-page">
   <div class="settings-header">
-    <button class="back-btn" onclick={onClose}>← Back</button>
+    <button class="back-btn" onclick={() => { applyTheme(originalTheme as ThemeName); onClose(); }}>← Back</button>
     <h2>Settings</h2>
+  </div>
+
+  <div class="settings-section">
+    <h3>Theme</h3>
+    <div class="theme-picker">
+      {#each themeOptions as theme}
+        <button
+          class="theme-swatch"
+          class:active={local.theme === theme.key}
+          style="background: {theme.bg}; border-color: {theme.accent}"
+          onclick={() => { local.theme = theme.key; previewTheme(theme.key); }}
+          title={theme.label}
+        >
+          <span class="swatch-dot" style="background: {theme.accent}"></span>
+        </button>
+      {/each}
+    </div>
   </div>
 
   <div class="settings-section">
@@ -128,21 +158,25 @@
   .settings-page { padding: 4px 0; }
   .settings-header { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
   .settings-header h2 { font-size: 15px; margin: 0; font-weight: 600; }
-  .back-btn { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 4px; }
-  .back-btn:hover { background: rgba(96, 165, 250, 0.1); }
+  .back-btn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 4px; }
+  .back-btn:hover { background: var(--btn-hover); }
   .settings-section { margin-bottom: 16px; }
-  .settings-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.5; margin: 0 0 8px; }
+  .settings-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin: 0 0 8px; }
   .tray-items { display: flex; flex-direction: column; gap: 6px; }
   .tray-item { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
   .tray-item.disabled { opacity: 0.3; cursor: not-allowed; }
-  .tray-item input { accent-color: #34d399; }
-  .tray-item input:disabled { accent-color: #555; }
-  .unavailable { font-size: 10px; color: #666; margin-left: auto; }
-  .tray-preview { margin-top: 10px; padding: 8px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; font-size: 12px; }
-  .preview-label { opacity: 0.4; margin-right: 6px; }
-  .preview-text { font-family: 'SF Mono', monospace; color: #34d399; }
+  .tray-item input { accent-color: var(--accent); }
+  .tray-item input:disabled { accent-color: var(--text-dim); }
+  .unavailable { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+  .tray-preview { margin-top: 10px; padding: 8px; background: var(--bg-secondary); border-radius: 6px; font-size: 12px; }
+  .preview-label { color: var(--text-dim); margin-right: 6px; }
+  .preview-text { font-family: 'SF Mono', monospace; color: var(--accent); }
   .slider-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
-  .slider-label input[type="range"] { width: 100%; accent-color: #34d399; }
-  .save-btn { width: 100%; padding: 8px; background: #34d399; color: #0f0f1a; border: none; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; }
-  .save-btn:hover { background: #2ec48a; }
+  .slider-label input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .save-btn { width: 100%; padding: 8px; background: var(--accent); color: var(--bg); border: none; border-radius: 6px; font-weight: 600; font-size: 13px; cursor: pointer; }
+  .save-btn:hover { opacity: 0.9; }
+  .theme-picker { display: flex; gap: 10px; }
+  .theme-swatch { width: 40px; height: 40px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: border-color 0.2s; }
+  .theme-swatch.active { border-color: var(--accent) !important; }
+  .swatch-dot { width: 12px; height: 12px; border-radius: 50%; }
 </style>
