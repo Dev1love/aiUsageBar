@@ -22,8 +22,8 @@ const TRAY_ID: &str = "main-tray";
 
 const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
-const POPUP_WIDTH: f64 = 300.0;
-const POPUP_HEIGHT: f64 = 520.0;
+const POPUP_WIDTH: f64 = 350.0;
+const POPUP_HEIGHT: f64 = 600.0;
 const POLL_INTERVAL_SECS: u64 = 300; // 5 minutes
 
 /// Tracks which notification thresholds have fired per reset cycle.
