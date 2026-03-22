@@ -36,7 +36,14 @@ Replace UsageBar progress bars for system metrics (CPU, RAM, network) with real-
 - Color from CSS variables
 - Replace UsageBar in Compute and Storage & Network sections
 
-### 2. Polish
+### 2. Section visibility & ordering (user requested)
+User wants to toggle popup sections on/off (e.g. hide Codex when not using) and reorder them. Need:
+- Settings UI: list of sections with toggle + drag to reorder
+- Store in `popup.sections` (already has `visible` and `order` in settings schema)
+- Render sections in +page.svelte based on settings order, skip hidden ones
+- Include: AI Usage (Claude), AI Usage (Codex), WeeklyChart, Compute, Storage & Network, Hardware, Bluetooth
+
+### 3. Polish
 - Glass theme: chart bars don't contrast well (white on translucent)
 - Settings: drag & drop for tray item reorder (Phase 5 from spec)
 - Collapsible sections in popup

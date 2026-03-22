@@ -16,8 +16,8 @@ export const themes = {
     backdrop: 'saturate(180%) blur(20px)',
   },
   'glass-blue': {
-    bg: 'rgba(15, 25, 60, 0.5)',
-    'bg-secondary': 'rgba(100, 160, 255, 0.06)',
+    bg: 'rgba(40, 100, 180, 0.25)',
+    'bg-secondary': 'rgba(100, 170, 255, 0.08)',
     text: 'rgba(220, 230, 255, 0.92)',
     'text-dim': 'rgba(180, 200, 255, 0.4)',
     accent: 'rgba(120, 180, 255, 0.9)',
