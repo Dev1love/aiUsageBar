@@ -447,7 +447,15 @@ fn toggle_popup(app: &tauri::AppHandle) {
             .skip_taskbar(true);
 
         match builder.build() {
-            Ok(_) => {}
+            Ok(window) => {
+                // Hide popup when it loses focus (standard menubar app behavior)
+                let w = window.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(false) = event {
+                        let _ = w.hide();
+                    }
+                });
+            }
             Err(e) => eprintln!("Failed to create popup window: {e}"),
         }
     }
