@@ -10,8 +10,9 @@
     onSave: (s: UserSettings) => void;
   } = $props();
 
-  let local = $state({ ...JSON.parse(JSON.stringify(settings)), theme: settings.theme || 'hacker' });
-  let originalTheme = settings.theme || 'hacker';
+  const initialSettings = JSON.parse(JSON.stringify(settings));
+  if (!initialSettings.theme) initialSettings.theme = 'hacker';
+  let local = $state(initialSettings);
 
   const themeOptions = [
     { key: 'hacker', label: 'Hacker', bg: '#000000', accent: '#00ff41' },

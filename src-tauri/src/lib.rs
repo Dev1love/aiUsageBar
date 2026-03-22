@@ -39,6 +39,10 @@ struct NotificationState {
     five_hour_95_reset: Option<String>,
     /// resets_at value when last notified for seven_day 80%
     seven_day_80_reset: Option<String>,
+    /// extra usage 80%
+    extra_80_fired: bool,
+    /// extra usage 100%
+    extra_100_fired: bool,
     /// resets_at value when last notified for seven_day 95%
     seven_day_95_reset: Option<String>,
 }
@@ -87,6 +91,23 @@ fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
         "Weekly usage at 95% — limit approaching!", &mut state.seven_day_95_reset);
     maybe_notify(app_handle, usage.seven_day.utilization, &usage.seven_day.resets_at, 80,
         "Weekly usage at 80%", &mut state.seven_day_80_reset);
+
+    // Extra usage notifications (no reset cycle — fire once per app session)
+    if let Some(util) = usage.extra_usage.utilization {
+        if util >= 100.0 && !state.extra_100_fired {
+            let _ = app_handle.notification().builder()
+                .title("VibeUsageBar")
+                .body("Extra usage at 100% — monthly limit reached!")
+                .show();
+            state.extra_100_fired = true;
+        } else if util >= 80.0 && !state.extra_80_fired {
+            let _ = app_handle.notification().builder()
+                .title("VibeUsageBar")
+                .body("Extra usage at 80% of monthly limit")
+                .show();
+            state.extra_80_fired = true;
+        }
+    }
 }
 
 /// Shared state holding the latest usage data.
