@@ -5,8 +5,10 @@
     utilization: number;
   } = $props();
 
-  // API returns utilization as 0-100 percentage
-  let percent = $derived(Math.round(utilization));
+  // API caps utilization at 100, compute real % from credits
+  let percent = $derived(
+    monthlyLimit > 0 ? Math.round((usedCredits / monthlyLimit) * 100) : Math.round(utilization)
+  );
 
   let barColor = $derived(
     utilization >= 95 ? 'var(--danger)' :
