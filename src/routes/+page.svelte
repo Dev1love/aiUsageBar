@@ -6,13 +6,17 @@
   import ExtraUsage from '$lib/ExtraUsage.svelte';
   import WeeklyChart from '$lib/WeeklyChart.svelte';
   import SystemSection from '$lib/SystemSection.svelte';
-  import type { AllUsage, SystemMetrics } from '$lib/types';
+  import TempGauge from '$lib/TempGauge.svelte';
+  import BluetoothList from '$lib/BluetoothList.svelte';
+  import SettingsPage from '$lib/SettingsPage.svelte';
+  import type { AllUsage, SystemMetrics, UserSettings } from '$lib/types';
   import NetworkSpeed from '$lib/NetworkSpeed.svelte';
 
   let usage: AllUsage | null = $state(null);
   let showSettings = $state(false);
   let error: string | null = $state(null);
   let systemMetrics: SystemMetrics | null = $state(null);
+  let currentSettings: UserSettings | null = $state(null);
 
   onMount(() => {
     let unlistenUpdate: (() => void) | undefined;
@@ -34,6 +38,10 @@
 
     invoke<AllUsage | null>('get_usage').then((cached) => {
       if (cached) usage = cached;
+    }).catch(() => {});
+
+    invoke<UserSettings>('get_settings').then((s) => {
+      currentSettings = s;
     }).catch(() => {});
 
     return () => {
@@ -58,7 +66,13 @@
     </div>
   </header>
 
-  {#if error && !usage}
+  {#if showSettings && currentSettings}
+    <SettingsPage
+      settings={currentSettings}
+      onClose={() => showSettings = false}
+      onSave={(s) => { currentSettings = s; showSettings = false; }}
+    />
+  {:else if error && !usage}
     <div class="error">
       {#if error.includes('Keychain') || error.includes('claude login')}
         <p>Run <code>claude login</code> to connect</p>
@@ -144,16 +158,25 @@
         />
       </SystemSection>
 
-      {#if systemMetrics.battery}
+      {#if systemMetrics.battery || systemMetrics.temps.length > 0 || systemMetrics.fans.length > 0}
         <SystemSection title="Hardware">
-          <div class="battery-info">
-            <span class="battery-icon">{systemMetrics.battery.charging ? '⚡' : '🔋'}</span>
-            <span class="battery-percent">{systemMetrics.battery.percent.toFixed(0)}%</span>
-            <span class="battery-detail">
-              Health {systemMetrics.battery.health_percent.toFixed(0)}%
-              · {systemMetrics.battery.cycle_count} cycles
-            </span>
-          </div>
+          <TempGauge temps={systemMetrics.temps} fans={systemMetrics.fans} />
+          {#if systemMetrics.battery}
+            <div class="battery-info">
+              <span class="battery-icon">{systemMetrics.battery.charging ? '⚡' : '🔋'}</span>
+              <span class="battery-percent">{systemMetrics.battery.percent.toFixed(0)}%</span>
+              <span class="battery-detail">
+                Health {systemMetrics.battery.health_percent.toFixed(0)}%
+                · {systemMetrics.battery.cycle_count} cycles
+              </span>
+            </div>
+          {/if}
+        </SystemSection>
+      {/if}
+
+      {#if systemMetrics.bluetooth.length > 0}
+        <SystemSection title="Bluetooth">
+          <BluetoothList devices={systemMetrics.bluetooth} />
         </SystemSection>
       {/if}
     {/if}
