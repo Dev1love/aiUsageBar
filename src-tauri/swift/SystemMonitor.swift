@@ -38,7 +38,11 @@ private class SMCConnection {
     var conn: io_connect_t = 0
 
     init?() {
-        let service = IOServiceGetMatchingService(kIOMainPortCompat, IOServiceMatching("AppleSMC"))
+        // Try Intel name first, then Apple Silicon name
+        var service = IOServiceGetMatchingService(kIOMainPortCompat, IOServiceMatching("AppleSMC"))
+        if service == 0 {
+            service = IOServiceGetMatchingService(kIOMainPortCompat, IOServiceMatching("AppleSMCKeysEndpoint"))
+        }
         guard service != 0 else { return nil }
         defer { IOObjectRelease(service) }
 
@@ -284,15 +288,16 @@ private func readBluetoothDevices() -> [[String: Any]] {
     }
 
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
-    guard let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-          let btSection = json.first,
-          let items = btSection["_items"] as? [[String: Any]] else {
+
+    // system_profiler returns {"SPBluetoothDataType": [{...}]}
+    guard let topLevel = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let btArray = topLevel["SPBluetoothDataType"] as? [[String: Any]] else {
         return []
     }
 
     var devices: [[String: Any]] = []
 
-    for item in items {
+    for item in btArray {
         // Connected devices can be under various keys depending on macOS version
         let deviceDictKeys = [
             "device_connected",      // older macOS

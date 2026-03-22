@@ -8,7 +8,7 @@
     onSave: (s: UserSettings) => void;
   } = $props();
 
-  let local = $state(structuredClone(settings));
+  let local = $state(JSON.parse(JSON.stringify(settings)));
 
   const availableItems = [
     { key: 'cpu', label: 'CPU %' },
