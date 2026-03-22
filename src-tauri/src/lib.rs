@@ -55,7 +55,7 @@ fn maybe_notify(
             let _ = app_handle
                 .notification()
                 .builder()
-                .title("aiUsageBar")
+                .title("VibeUsageBar")
                 .body(body)
                 .show();
             *last_reset = Some(resets_at.to_string());
@@ -227,14 +227,14 @@ pub fn run() {
             let app_handle = app.handle().clone();
 
             // Build a simple context menu for the tray
-            let quit = MenuItemBuilder::with_id("quit", "Quit aiUsageBar").build(app)?;
+            let quit = MenuItemBuilder::with_id("quit", "Quit VibeUsageBar").build(app)?;
             let menu = MenuBuilder::new(app).item(&quit).build()?;
 
             // eprintln!("[aiUsageBar] Building tray icon...");
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(icon)
                 .icon_as_template(false)
-                .tooltip("aiUsageBar")
+                .tooltip("VibeUsageBar")
                 .menu(&menu)
                 .on_menu_event(|app, event| {
                     if event.id().as_ref() == "quit" {
@@ -285,7 +285,7 @@ fn toggle_popup(app: &tauri::AppHandle) {
     } else {
         // Create the popup window
         let builder = WebviewWindowBuilder::new(app, POPUP_LABEL, WebviewUrl::App("index.html".into()))
-            .title("aiUsageBar")
+            .title("VibeUsageBar")
             .inner_size(POPUP_WIDTH, POPUP_HEIGHT)
             .decorations(false)
             .resizable(false)

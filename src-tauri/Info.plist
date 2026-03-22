@@ -4,5 +4,7 @@
 <dict>
     <key>LSUIElement</key>
     <true/>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>This app does not use Bluetooth.</string>
 </dict>
 </plist>
