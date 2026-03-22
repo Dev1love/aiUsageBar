@@ -5,42 +5,11 @@
   import UsageBar from '$lib/UsageBar.svelte';
   import ExtraUsage from '$lib/ExtraUsage.svelte';
   import WeeklyChart from '$lib/WeeklyChart.svelte';
-
-  interface PeriodUsage {
-    utilization: number;
-    resets_at: string;
-  }
-
-  interface ExtraUsageData {
-    is_enabled: boolean;
-    monthly_limit: number | null;
-    used_credits: number | null;
-    utilization: number | null;
-  }
-
-  interface UsageData {
-    five_hour: PeriodUsage;
-    seven_day: PeriodUsage;
-    extra_usage: ExtraUsageData;
-  }
-
-  interface CodexCredits {
-    remaining: number;
-    has_credits: boolean;
-  }
-
-  interface CodexUsageData {
-    primary: PeriodUsage;
-    secondary: PeriodUsage | null;
-    credits: CodexCredits | null;
-  }
-
-  interface AllUsage {
-    claude: UsageData | null;
-    codex: CodexUsageData | null;
-  }
+  import SystemSection from '$lib/SystemSection.svelte';
+  import type { AllUsage } from '$lib/types';
 
   let usage: AllUsage | null = $state(null);
+  let showSettings = $state(false);
   let error: string | null = $state(null);
 
   onMount(() => {
@@ -70,7 +39,15 @@
 <main>
   <header>
     <h1>VibeUsageBar</h1>
-    <span class="dot" class:online={!error && usage} class:offline={error}></span>
+    <div class="header-right">
+      <span class="dot" class:online={!error && usage} class:offline={error}></span>
+      <button class="gear-btn" aria-label="Settings" onclick={() => showSettings = !showSettings}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   {#if error && !usage}
@@ -82,54 +59,56 @@
       {/if}
     </div>
   {:else if usage}
-    {#if usage.claude}
-      <div class="provider-section">
-        <div class="provider-label">Claude Code</div>
-        <UsageBar
-          label="5-hour session"
-          utilization={usage.claude.five_hour.utilization}
-          resetsAt={usage.claude.five_hour.resets_at}
-        />
-        <UsageBar
-          label="7-day weekly"
-          utilization={usage.claude.seven_day.utilization}
-          resetsAt={usage.claude.seven_day.resets_at}
-        />
-        {#if usage.claude.extra_usage.is_enabled && usage.claude.extra_usage.monthly_limit != null && usage.claude.extra_usage.used_credits != null && usage.claude.extra_usage.utilization != null}
-          <ExtraUsage
-            monthlyLimit={usage.claude.extra_usage.monthly_limit}
-            usedCredits={usage.claude.extra_usage.used_credits}
-            utilization={usage.claude.extra_usage.utilization}
-          />
-        {/if}
-      </div>
-    {/if}
-
-    {#if usage.codex}
-      <div class="provider-section">
-        <div class="provider-label">Codex CLI</div>
-        <UsageBar
-          label="5-hour session"
-          utilization={usage.codex.primary.utilization}
-          resetsAt={usage.codex.primary.resets_at}
-        />
-        {#if usage.codex.secondary}
+    <SystemSection title="AI Usage">
+      {#if usage.claude}
+        <div class="provider-block">
+          <div class="provider-label">Claude Code</div>
           <UsageBar
-            label="Weekly"
-            utilization={usage.codex.secondary.utilization}
-            resetsAt={usage.codex.secondary.resets_at}
+            label="5-hour session"
+            utilization={usage.claude.five_hour.utilization}
+            resetsAt={usage.claude.five_hour.resets_at}
           />
-        {/if}
-        {#if usage.codex.credits}
-          <div class="codex-credits">
-            <span class="credits-label">Credits</span>
-            <span class="credits-value" class:low={!usage.codex.credits.has_credits}>
-              ${usage.codex.credits.remaining.toFixed(0)}
-            </span>
-          </div>
-        {/if}
-      </div>
-    {/if}
+          <UsageBar
+            label="7-day weekly"
+            utilization={usage.claude.seven_day.utilization}
+            resetsAt={usage.claude.seven_day.resets_at}
+          />
+          {#if usage.claude.extra_usage.is_enabled && usage.claude.extra_usage.monthly_limit != null && usage.claude.extra_usage.used_credits != null && usage.claude.extra_usage.utilization != null}
+            <ExtraUsage
+              monthlyLimit={usage.claude.extra_usage.monthly_limit}
+              usedCredits={usage.claude.extra_usage.used_credits}
+              utilization={usage.claude.extra_usage.utilization}
+            />
+          {/if}
+        </div>
+      {/if}
+
+      {#if usage.codex}
+        <div class="provider-block">
+          <div class="provider-label">Codex CLI</div>
+          <UsageBar
+            label="5-hour session"
+            utilization={usage.codex.primary.utilization}
+            resetsAt={usage.codex.primary.resets_at}
+          />
+          {#if usage.codex.secondary}
+            <UsageBar
+              label="Weekly"
+              utilization={usage.codex.secondary.utilization}
+              resetsAt={usage.codex.secondary.resets_at}
+            />
+          {/if}
+          {#if usage.codex.credits}
+            <div class="codex-credits">
+              <span class="credits-label">Credits</span>
+              <span class="credits-value" class:low={!usage.codex.credits.has_credits}>
+                ${usage.codex.credits.remaining.toFixed(0)}
+              </span>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </SystemSection>
 
     <WeeklyChart />
   {:else}
@@ -155,7 +134,7 @@
 
 main {
   padding: 18px 20px 16px;
-  width: 300px;
+  width: 350px;
   box-sizing: border-box;
 }
 
@@ -189,7 +168,7 @@ h1 {
   background: #ef4444;
 }
 
-.provider-section {
+.provider-block {
   margin-bottom: 8px;
 }
 
@@ -204,8 +183,30 @@ h1 {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.provider-section + .provider-section {
+.provider-block + .provider-block {
   padding-top: 8px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gear-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.gear-btn:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .codex-credits {
