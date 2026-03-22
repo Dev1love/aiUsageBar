@@ -1,9 +1,11 @@
 mod api;
 mod db;
 mod keychain;
+mod settings;
 mod tray_icon;
 
 use std::sync::Mutex;
+use std::sync::RwLock;
 
 use tauri::{
     image::Image,
@@ -85,6 +87,28 @@ fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
 
 /// Shared state holding the latest usage data.
 struct UsageState(Mutex<Option<AllUsage>>);
+
+struct SettingsState(RwLock<settings::UserSettings>);
+
+#[tauri::command]
+fn get_settings(state: tauri::State<'_, SettingsState>) -> Result<settings::UserSettings, String> {
+    let s = state.0.read().map_err(|e| e.to_string())?;
+    Ok(s.clone())
+}
+
+#[tauri::command]
+fn save_settings_cmd(
+    new_settings: settings::UserSettings,
+    state: tauri::State<'_, SettingsState>,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+    settings::save_settings(&app_data_dir, &new_settings)?;
+    let mut s = state.0.write().map_err(|e| e.to_string())?;
+    *s = new_settings;
+    Ok(())
+}
 
 #[tauri::command]
 fn get_usage(state: tauri::State<'_, UsageState>) -> Result<Option<AllUsage>, String> {
@@ -172,10 +196,10 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
                         }
                     }
                 }
-                Err(e) => // eprintln!("[aiUsageBar] Claude error: {e}"),
+                Err(_e) => {} // eprintln!("[aiUsageBar] Claude error: {e}"),
             }
         }
-        Err(e) => // eprintln!("[aiUsageBar] Claude keychain: {e}"),
+        Err(_e) => {} // eprintln!("[aiUsageBar] Claude keychain: {e}"),
     }
 
     // Poll Codex
@@ -185,7 +209,7 @@ async fn poll_usage(app_handle: &tauri::AppHandle) {
             all.codex = Some(codex);
             any_success = true;
         }
-        Err(e) => // eprintln!("[aiUsageBar] Codex error: {e}"),
+        Err(_e) => {} // eprintln!("[aiUsageBar] Codex error: {e}"),
     }
 
     if any_success {
@@ -204,7 +228,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(UsageState(Mutex::new(None)))
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))
-        .invoke_handler(tauri::generate_handler![get_usage, get_history])
+        .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd])
         .setup(|app| {
             // Hide dock icon — menubar-only app
             #[cfg(target_os = "macos")]
@@ -215,6 +239,25 @@ pub fn run() {
             // Initialize SQLite database
             let app_data_dir = app.path().app_data_dir()
                 .map_err(|e| format!("Failed to resolve app data dir: {e}"))?;
+
+            // Migrate data from old aiUsageBar app if exists
+            let old_app_dir = app_data_dir
+                .parent()
+                .map(|p| p.join("com.aiusagebar.app"));
+            if let Some(ref old_dir) = old_app_dir {
+                let old_db = old_dir.join("claudebar.db");
+                let new_db = app_data_dir.join("claudebar.db");
+                if old_db.exists() && !new_db.exists() {
+                    let _ = std::fs::create_dir_all(&app_data_dir);
+                    if let Err(e) = std::fs::copy(&old_db, &new_db) {
+                        eprintln!("Failed to migrate old database: {e}");
+                    }
+                }
+            }
+
+            let user_settings = settings::load_settings(&app_data_dir);
+            app.manage(SettingsState(RwLock::new(user_settings)));
+
             let conn = db::open_database(app_data_dir)
                 .map_err(|e| format!("Database init failed: {e}"))?;
             app.manage(Database(Mutex::new(conn)));
