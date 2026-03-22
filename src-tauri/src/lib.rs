@@ -444,7 +444,8 @@ fn toggle_popup(app: &tauri::AppHandle) {
             .resizable(false)
             .always_on_top(true)
             .visible(true)
-            .skip_taskbar(true);
+            .skip_taskbar(true)
+            .transparent(true);
 
         match builder.build() {
             Ok(window) => {

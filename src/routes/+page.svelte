@@ -222,6 +222,8 @@
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-font-smoothing: antialiased;
+  -webkit-backdrop-filter: var(--backdrop, none);
+  backdrop-filter: var(--backdrop, none);
 }
 
 main {

@@ -194,8 +194,10 @@ fn read_health_from_system_profiler() -> Option<f32> {
     let power_data = json.get("SPPowerDataType")?.as_array()?.first()?;
     let health_info = power_data.get("sppower_battery_health_info")?;
     // "Maximum Capacity" is reported as a percentage string like "96%"
-    let max_capacity = health_info.get("sppower_battery_max_capacity")?
-        .as_str()?
+    // Key is "sppower_battery_health_maximum_capacity" with value like "96%"
+    let max_capacity = health_info.get("sppower_battery_health_maximum_capacity")
+        .or_else(|| health_info.get("sppower_battery_max_capacity"))
+        .and_then(|v| v.as_str())?
         .trim_end_matches('%')
         .parse::<f32>()
         .ok()?;

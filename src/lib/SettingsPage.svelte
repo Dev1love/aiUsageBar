@@ -18,6 +18,7 @@
     { key: 'midnight', label: 'Midnight', bg: '#0f0f1a', accent: '#34d399' },
     { key: 'cyberpunk', label: 'Cyberpunk', bg: '#0d0011', accent: '#bf5af2' },
     { key: 'frost', label: 'Frost', bg: '#f0f4f8', accent: '#3182ce' },
+    { key: 'glass', label: 'Glass', bg: 'rgba(30,30,30,0.55)', accent: 'rgba(255,255,255,0.85)' },
   ];
 
   function previewTheme(key: string) {
@@ -89,7 +90,7 @@
 
 <div class="settings-page">
   <div class="settings-header">
-    <button class="back-btn" onclick={() => { applyTheme(originalTheme as ThemeName); onClose(); }}>← Back</button>
+    <button class="back-btn" onclick={() => { save(); onClose(); }}>← Back</button>
     <h2>Settings</h2>
   </div>
 

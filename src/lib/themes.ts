@@ -59,14 +59,39 @@ export const themes = {
     'net-down': '#38a169',
     'net-up': '#3182ce',
   },
+  glass: {
+    bg: 'rgba(30, 30, 30, 0.55)',
+    'bg-secondary': 'rgba(255, 255, 255, 0.06)',
+    text: 'rgba(255, 255, 255, 0.9)',
+    'text-dim': 'rgba(255, 255, 255, 0.35)',
+    accent: 'rgba(255, 255, 255, 0.85)',
+    'accent-glow': 'rgba(255, 255, 255, 0.15)',
+    warning: '#ffcc00',
+    danger: '#ff453a',
+    border: 'rgba(255, 255, 255, 0.12)',
+    track: 'rgba(255, 255, 255, 0.08)',
+    'btn-hover': 'rgba(255, 255, 255, 0.06)',
+    'net-down': 'rgba(48, 209, 88, 0.9)',
+    'net-up': 'rgba(100, 210, 255, 0.9)',
+    backdrop: 'saturate(180%) blur(20px)',
+  },
 } as const;
 
 export type ThemeName = keyof typeof themes;
 
+// All CSS variable keys used by themes — ensures cleanup when switching
+const allKeys = ['bg', 'bg-secondary', 'text', 'text-dim', 'accent', 'accent-glow',
+  'warning', 'danger', 'border', 'track', 'btn-hover', 'net-down', 'net-up', 'backdrop'];
+
 export function applyTheme(name: ThemeName) {
   const theme = themes[name] || themes.hacker;
   const root = document.documentElement;
-  for (const [key, value] of Object.entries(theme)) {
-    root.style.setProperty(`--${key}`, value);
+  const entries = theme as Record<string, string>;
+  for (const key of allKeys) {
+    if (entries[key]) {
+      root.style.setProperty(`--${key}`, entries[key]);
+    } else {
+      root.style.removeProperty(`--${key}`);
+    }
   }
 }
