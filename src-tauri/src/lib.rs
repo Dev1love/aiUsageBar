@@ -2,6 +2,7 @@ mod api;
 mod db;
 mod keychain;
 mod settings;
+mod swift_bridge;
 mod system_monitor;
 mod tray_icon;
 
@@ -359,15 +360,27 @@ pub fn run() {
                         }
                     };
 
+                    let (temps, fans) = swift_bridge::get_smc_data();
+
+                    let bluetooth = if tick_count % (10 / sys_interval).max(1) == 0 || tick_count == 1 {
+                        swift_bridge::get_bluetooth_devices()
+                    } else {
+                        if let Some(state) = sys_handle.try_state::<SystemState>() {
+                            state.0.read().ok().map(|m| m.bluetooth.clone()).unwrap_or_default()
+                        } else {
+                            vec![]
+                        }
+                    };
+
                     let metrics = SystemMetrics {
                         cpu,
                         ram,
                         disk,
                         network: net,
                         battery,
-                        temps: vec![],
-                        fans: vec![],
-                        bluetooth: vec![],
+                        temps,
+                        fans,
+                        bluetooth,
                     };
 
                     if let Some(state) = sys_handle.try_state::<SystemState>() {
