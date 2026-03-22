@@ -1,14 +1,30 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import type { UserSettings } from '$lib/types';
+  import type { UserSettings, SystemMetrics } from '$lib/types';
 
-  let { settings, onClose, onSave }: {
+  let { settings, systemMetrics, onClose, onSave }: {
     settings: UserSettings;
+    systemMetrics: SystemMetrics | null;
     onClose: () => void;
     onSave: (s: UserSettings) => void;
   } = $props();
 
   let local = $state(JSON.parse(JSON.stringify(settings)));
+
+  // Determine which items are available based on current system metrics
+  let disabledItems = $derived.by(() => {
+    const disabled = new Set<string>();
+    if (!systemMetrics) return disabled;
+    const hasCpuTemp = systemMetrics.temps.some(t => t.name.toLowerCase().includes('cpu'));
+    const hasGpuTemp = systemMetrics.temps.some(t => t.name.toLowerCase().includes('gpu'));
+    const hasFans = systemMetrics.fans.length > 0;
+    const hasBattery = systemMetrics.battery != null;
+    if (!hasCpuTemp) disabled.add('temp_cpu');
+    if (!hasGpuTemp) disabled.add('temp_gpu');
+    if (!hasFans) disabled.add('fan');
+    if (!hasBattery) disabled.add('battery');
+    return disabled;
+  });
 
   const availableItems = [
     { key: 'cpu', label: 'CPU %' },
@@ -25,6 +41,7 @@
   ];
 
   function toggleItem(key: string) {
+    if (disabledItems.has(key)) return;
     const idx = local.tray.items.indexOf(key);
     if (idx >= 0) {
       local.tray.items = local.tray.items.filter((k: string) => k !== key);
@@ -33,7 +50,21 @@
     }
   }
 
+  // Build preview showing formatted labels, not raw keys
+  let previewText = $derived.by(() => {
+    const labelMap: Record<string, string> = {};
+    for (const item of availableItems) {
+      labelMap[item.key] = item.label;
+    }
+    return local.tray.items
+      .filter((k: string) => !disabledItems.has(k))
+      .map((k: string) => labelMap[k] || k)
+      .join(local.tray.separator);
+  });
+
   async function save() {
+    // Remove disabled items before saving
+    local.tray.items = local.tray.items.filter((k: string) => !disabledItems.has(k));
     try {
       await invoke('save_settings_cmd', { newSettings: local });
       onSave(local);
@@ -53,13 +84,18 @@
     <h3>Tray Display</h3>
     <div class="tray-items">
       {#each availableItems as item}
-        <label class="tray-item">
+        {@const isDisabled = disabledItems.has(item.key)}
+        <label class="tray-item" class:disabled={isDisabled}>
           <input
             type="checkbox"
             checked={local.tray.items.includes(item.key)}
+            disabled={isDisabled}
             onchange={() => toggleItem(item.key)}
           />
           <span>{item.label}</span>
+          {#if isDisabled}
+            <span class="unavailable">N/A</span>
+          {/if}
         </label>
       {/each}
     </div>
@@ -67,7 +103,7 @@
     <div class="tray-preview">
       <span class="preview-label">Preview:</span>
       <span class="preview-text">
-        {local.tray.items.join(local.tray.separator)}
+        {previewText || '(empty)'}
       </span>
     </div>
   </div>
@@ -98,7 +134,10 @@
   .settings-section h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.5; margin: 0 0 8px; }
   .tray-items { display: flex; flex-direction: column; gap: 6px; }
   .tray-item { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .tray-item.disabled { opacity: 0.3; cursor: not-allowed; }
   .tray-item input { accent-color: #34d399; }
+  .tray-item input:disabled { accent-color: #555; }
+  .unavailable { font-size: 10px; color: #666; margin-left: auto; }
   .tray-preview { margin-top: 10px; padding: 8px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; font-size: 12px; }
   .preview-label { opacity: 0.4; margin-right: 6px; }
   .preview-text { font-family: 'SF Mono', monospace; color: #34d399; }

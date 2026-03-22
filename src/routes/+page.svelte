@@ -79,6 +79,7 @@
     {#if currentSettings}
       <SettingsPage
         settings={currentSettings}
+        {systemMetrics}
         onClose={() => showSettings = false}
         onSave={(s) => { currentSettings = s; showSettings = false; }}
       />
