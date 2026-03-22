@@ -49,8 +49,8 @@ Three-layer architecture within a single .app bundle:
 | Metric | Source |
 |---|---|
 | CPU, RAM, Disk, Network | Rust (`sysinfo` crate) |
-| GPU utilization | Rust (Metal/IOKit FFI) |
-| Battery | Rust (IOKit via `core-foundation`) |
+| GPU utilization | Rust (IOReport, experimental — Phase 5) |
+| Battery | Rust (`battery` crate, cross-platform IOKit wrapper) |
 | CPU/GPU/SSD Temperature | **Swift dylib** (SMC) |
 | Fan RPM | **Swift dylib** (SMC) |
 | Bluetooth devices | **Swift dylib** (`IOBluetooth`) |
@@ -67,9 +67,11 @@ Two independent polling loops running on tokio:
 - Update tray (if AI metrics enabled)
 
 ### System Loop (configurable 1-30 sec)
-- `sysinfo.refresh_all()` → CPU, RAM, Disk, Net
-- `swift_dylib::smc_read_temps()` + `smc_read_fans()` → Temps, Fans
-- `swift_dylib::bt_get_devices()` → Bluetooth
+- Selective `sysinfo` refresh based on enabled metrics (not `refresh_all()` — too expensive at 1s intervals):
+  - `refresh_cpu_usage()`, `refresh_memory()`, `refresh_networks()` — per-subsystem
+  - Disk refresh only every 10s (slow-changing)
+- `swift_dylib::smc_read_all()` → Temps + Fans (single FFI call)
+- `swift_dylib::bt_get_devices()` → Bluetooth (every 10s, slow-changing)
 - Emit `system-update` → Frontend
 - Update tray (if system metrics enabled)
 
@@ -78,8 +80,8 @@ Two independent polling loops running on tokio:
 ```rust
 struct AppState {
     ai_usage: Mutex<Option<AllUsage>>,
-    system_metrics: Mutex<SystemMetrics>,
-    settings: Mutex<UserSettings>,
+    system_metrics: RwLock<SystemMetrics>,  // RwLock: reads >> writes
+    settings: RwLock<UserSettings>,         // RwLock: reads >> writes
 }
 
 struct SystemMetrics {
@@ -102,20 +104,21 @@ struct SystemMetrics {
 Exported C ABI functions returning JSON strings (simplest FFI — no complex struct marshaling):
 
 ```swift
-@_cdecl("smc_read_temps")
-func smcReadTemps() -> UnsafePointer<CChar>
-// → [{"name":"CPU","value":54.2},{"name":"GPU","value":48.1}]
+// All functions return strdup'd C strings. Caller must free via free_string().
+// On error, functions return "[]" (empty JSON array), never null.
+// Apple Silicon and Intel have different SMC keys — implementation must detect arch.
 
-@_cdecl("smc_read_fans")
-func smcReadFans() -> UnsafePointer<CChar>
-// → [{"name":"Fan 0","rpm":1820,"min":1100,"max":6200}]
+@_cdecl("smc_read_all")
+func smcReadAll() -> UnsafeMutablePointer<CChar>
+// → {"temps":[{"name":"CPU","value":54.2}],"fans":[{"name":"Fan 0","rpm":1820,"min":1100,"max":6200}]}
 
 @_cdecl("bt_get_devices")
-func btGetDevices() -> UnsafePointer<CChar>
+func btGetDevices() -> UnsafeMutablePointer<CChar>
 // → [{"name":"AirPods Pro","connected":true,"battery":82}]
 
 @_cdecl("free_string")
-func freeString(_ ptr: UnsafePointer<CChar>)
+func freeString(_ ptr: UnsafeMutablePointer<CChar>)
+// Caller passes the pointer back; Swift deallocates via ptr.deallocate()
 ```
 
 ### Rust FFI Bridge: `src-tauri/src/swift_bridge.rs`
@@ -123,19 +126,18 @@ func freeString(_ ptr: UnsafePointer<CChar>)
 ```rust
 #[link(name = "system_monitor")]
 extern "C" {
-    fn smc_read_temps() -> *const c_char;
-    fn smc_read_fans() -> *const c_char;
-    fn bt_get_devices() -> *const c_char;
-    fn free_string(ptr: *const c_char);
+    fn smc_read_all() -> *mut c_char;
+    fn bt_get_devices() -> *mut c_char;
+    fn free_string(ptr: *mut c_char);
 }
 
-pub fn get_temps() -> Vec<TempSensor> {
+pub fn get_smc_data() -> SmcData {
     unsafe {
-        let ptr = smc_read_temps();
-        let json = CStr::from_ptr(ptr).to_str().unwrap();
-        let result = serde_json::from_str(json).unwrap_or_default();
+        let ptr = smc_read_all();
+        // Convert to owned String immediately, then free FFI memory
+        let json_owned = CStr::from_ptr(ptr).to_string_lossy().into_owned();
         free_string(ptr);
-        result
+        serde_json::from_str(&json_owned).unwrap_or_default()
     }
 }
 ```
@@ -273,13 +275,19 @@ Dylib placed in `Contents/Frameworks/` inside .app bundle. `@rpath` configured v
 
 ### Phase 1: Foundation
 - Rename project to VibeUsageBar (tauri.conf.json, identifiers)
-- Settings system (JSON storage + Rust state + Svelte settings page)
-- Refactor popup layout (sections, new window size)
-- Migrate old SQLite DB path if exists
+- Migrate old data: copy `~/Library/Application Support/com.aiusagebar.app/claudebar.db` → new app support dir
+- Settings system with defaults and schema version:
+  ```json
+  { "schema_version": 1, "tray": {...}, "polling": {...}, "popup": {...} }
+  ```
+  On first launch: create settings.json with defaults. On load: validate keys, ignore unknown.
+- Refactor popup layout (sections, new window size, `overflow-y: auto` from day one)
+- Add `NSBluetoothAlwaysUsageDescription` to Info.plist (needed for Phase 3)
+- Add `com.apple.security.device.bluetooth` entitlement
 
 ### Phase 2: Rust System Metrics (sysinfo)
-- Add `sysinfo` crate — CPU, RAM, Disk, Network
-- Battery via IOKit
+- Add `sysinfo` crate — CPU, RAM, Disk, Network (selective refresh, not `refresh_all()`)
+- Battery via `battery` crate
 - System polling loop (separate from AI loop)
 - New Svelte components: SystemSection, NetworkSpeed
 - Emit `system-update` events to frontend
@@ -293,20 +301,33 @@ Dylib placed in `Contents/Frameworks/` inside .app bundle. `@rpath` configured v
 - Graceful fallback if dylib fails to load
 
 ### Phase 4: Tray Icon
-- Text-based menubar rendering (replace bitmap approach)
+- Text-based menubar via `tray.set_title()` — single concatenated string with configured separator
+- Keep bitmap icon alongside title (small icon + text, like iStat Menus)
 - Configurable items from settings
 - Update from both polling loops
 
 ### Phase 5: Polish
 - Drag & drop in settings for tray items
 - Tray preview in settings
-- GPU utilization (Metal Performance Statistics)
+- GPU utilization (experimental — IOReport framework, undocumented Apple API used by `powermetrics`)
 - Collapsible sections in popup
+
+## Data Storage
+
+### SQLite
+- Existing `usage_snapshots` table — unchanged
+- No system metrics stored in SQLite for now (real-time only, no history charts for system metrics)
+- Future: optional system metrics history can be added as a separate table
+
+### Settings
+- `settings.json` with `schema_version` field for forward-compatible migrations
+- Defaults created on first launch if file missing
+- Invalid keys ignored, missing keys filled with defaults
 
 ## Preserved (No Changes)
 - AI polling logic (`api.rs`)
 - Keychain integration (`keychain.rs`)
-- SQLite schema (add new table, keep existing)
+- SQLite schema (existing table untouched)
 - WeeklyChart, UsageBar, ExtraUsage components
 
 ## Risks & Mitigation
@@ -316,7 +337,10 @@ Dylib placed in `Contents/Frameworks/` inside .app bundle. `@rpath` configured v
 | SMC unreadable without root on Apple Silicon | Fallback: show "N/A", metric unavailable |
 | swiftc missing on build machine | Require Xcode Command Line Tools (standard for macOS dev) |
 | dylib fails to load at runtime | Integration test at startup: call `smc_read_temps()`, if crash — disable Swift metrics |
-| Popup too tall | Scroll + collapsible sections (Phase 5) |
+| Popup too tall | `overflow-y: auto` from Phase 1 + collapsible sections in Phase 5 |
+| Bluetooth permission denied | `NSBluetoothAlwaysUsageDescription` in Info.plist + entitlement (added in Phase 1) |
+| GPU utilization hard to read on Apple Silicon | Deferred to Phase 5 as experimental; no simple public API exists |
+| Settings file corrupted/invalid | Load defaults on parse error; validate keys; schema_version for migrations |
 
 ## Dependencies
 
@@ -324,7 +348,7 @@ Dylib placed in `Contents/Frameworks/` inside .app bundle. `@rpath` configured v
 | Crate | Purpose |
 |---|---|
 | `sysinfo` | CPU, RAM, Disk, Network metrics |
-| `core-foundation` | macOS IOKit for battery |
+| `battery` | Cross-platform battery info (IOKit on macOS) |
 
 ### Swift Frameworks
 | Framework | Purpose |
