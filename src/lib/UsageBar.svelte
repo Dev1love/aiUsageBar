@@ -1,13 +1,14 @@
 <script lang="ts">
-  let { label, utilization, resetsAt }: {
+  let { label, utilization, resetsAt = '' }: {
     label: string;
     utilization: number;
-    resetsAt: string;
+    resetsAt?: string;
   } = $props();
 
   let now = $state(Date.now());
 
   $effect(() => {
+    if (!resetsAt) return;
     const timer = setInterval(() => { now = Date.now(); }, 60_000);
     return () => clearInterval(timer);
   });
@@ -49,9 +50,11 @@
       style="width: {Math.min(percent, 100)}%; background: {barColor}; box-shadow: 0 0 8px {barGlow}"
     ></div>
   </div>
-  <div class="meta">
-    <span class="reset">Resets in {countdown}</span>
-  </div>
+  {#if resetsAt}
+    <div class="meta">
+      <span class="reset">Resets in {countdown}</span>
+    </div>
+  {/if}
 </div>
 
 <style>

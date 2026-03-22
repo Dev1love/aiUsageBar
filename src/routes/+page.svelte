@@ -6,15 +6,18 @@
   import ExtraUsage from '$lib/ExtraUsage.svelte';
   import WeeklyChart from '$lib/WeeklyChart.svelte';
   import SystemSection from '$lib/SystemSection.svelte';
-  import type { AllUsage } from '$lib/types';
+  import type { AllUsage, SystemMetrics } from '$lib/types';
+  import NetworkSpeed from '$lib/NetworkSpeed.svelte';
 
   let usage: AllUsage | null = $state(null);
   let showSettings = $state(false);
   let error: string | null = $state(null);
+  let systemMetrics: SystemMetrics | null = $state(null);
 
   onMount(() => {
     let unlistenUpdate: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let unlistenSystem: (() => void) | undefined;
 
     listen<AllUsage>('usage-update', (event) => {
       usage = event.payload;
@@ -25,6 +28,10 @@
       error = event.payload;
     }).then((fn) => { unlistenError = fn; });
 
+    listen<SystemMetrics>('system-update', (event) => {
+      systemMetrics = event.payload;
+    }).then((fn) => { unlistenSystem = fn; });
+
     invoke<AllUsage | null>('get_usage').then((cached) => {
       if (cached) usage = cached;
     }).catch(() => {});
@@ -32,6 +39,7 @@
     return () => {
       unlistenUpdate?.();
       unlistenError?.();
+      unlistenSystem?.();
     };
   });
 </script>
@@ -109,6 +117,46 @@
         </div>
       {/if}
     </SystemSection>
+
+    {#if systemMetrics}
+      <SystemSection title="Compute">
+        <UsageBar label="CPU" utilization={systemMetrics.cpu.overall} />
+        <UsageBar
+          label="RAM"
+          utilization={(systemMetrics.ram.used_gb / systemMetrics.ram.total_gb) * 100}
+        />
+        <div class="metric-detail">
+          {systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(0)} GB
+        </div>
+      </SystemSection>
+
+      <SystemSection title="Storage & Network">
+        <UsageBar
+          label="Disk"
+          utilization={(systemMetrics.disk.used_gb / systemMetrics.disk.total_gb) * 100}
+        />
+        <div class="metric-detail">
+          {systemMetrics.disk.used_gb.toFixed(0)} / {systemMetrics.disk.total_gb.toFixed(0)} GB
+        </div>
+        <NetworkSpeed
+          download={systemMetrics.network.download_speed}
+          upload={systemMetrics.network.upload_speed}
+        />
+      </SystemSection>
+
+      {#if systemMetrics.battery}
+        <SystemSection title="Hardware">
+          <div class="battery-info">
+            <span class="battery-icon">{systemMetrics.battery.charging ? '⚡' : '🔋'}</span>
+            <span class="battery-percent">{systemMetrics.battery.percent.toFixed(0)}%</span>
+            <span class="battery-detail">
+              Health {systemMetrics.battery.health_percent.toFixed(0)}%
+              · {systemMetrics.battery.cycle_count} cycles
+            </span>
+          </div>
+        </SystemSection>
+      {/if}
+    {/if}
 
     <WeeklyChart />
   {:else}
@@ -274,5 +322,33 @@ h1 {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+.metric-detail {
+  font-size: 11px;
+  opacity: 0.4;
+  text-align: right;
+  margin-top: -8px;
+  margin-bottom: 8px;
+}
+
+.battery-info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.battery-icon {
+  font-size: 16px;
+}
+.battery-percent {
+  font-weight: 700;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: #34d399;
+}
+.battery-detail {
+  font-size: 11px;
+  opacity: 0.4;
 }
 </style>
