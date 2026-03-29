@@ -1,60 +1,113 @@
-# VibeUsageBar — Session Handoff (2026-03-24)
+# VibeUsageBar — Session Handoff (2026-03-30)
 
-## What was done this session
+## Current version: v0.3.0
 
-### 1. SparkChart component (DONE)
-- New `src/lib/SparkChart.svelte` — SVG area sparkline chart component
-- Ring buffer of last 60 samples for CPU, RAM, network down/up
-- SVG `<path>` with gradient area fill, color from CSS variables
-- Threshold colors: green → yellow (80%) → red (95%)
-- Supports `formattedValue` prop for custom display (e.g. network speeds)
-- Replaced UsageBar for CPU and RAM in Compute section
-- Replaced NetworkSpeed with two SparkCharts (download/upload) in Storage & Network
-- Disk stays as UsageBar (static metric, sparkline not useful)
+Unified macOS menubar utility: AI usage tracking (Claude Code + Codex CLI) + full system monitoring + history.
 
-### 2. Section visibility & ordering (DONE)
-- Sections now render dynamically via `sortedSectionKeys` from settings
-- Split "AI Usage" into separate sections: `ai_claude` and `ai_codex` (independently toggleable)
-- Added `weekly_chart` and `bluetooth` as separate sections
-- Settings UI: "Popup Sections" with toggles and up/down arrows for reorder
-- Rust defaults updated with 7 sections (was 5)
-- Settings persist to `settings.json` via existing save mechanism
+## What was done (v0.2.0 → v0.3.0)
 
-### 3. Collapsible sections (DONE)
-- SystemSection now has `collapsible` prop (default: true)
-- Click section header to collapse/expand
-- Chevron indicator (▸/▾)
-- Proper `<button>` element for a11y
-- Hover effect on header
+### SparkChart
+- `src/lib/SparkChart.svelte` — SVG area sparkline with monotone cubic splines
+- Ring buffer of 60 samples for CPU, RAM, network
+- Gradient area fill, threshold colors (green → yellow 80% → red 95%)
+- `formattedValue` prop for custom display (network speeds)
+- Sanitized SVG gradient IDs (fixed black charts on special chars)
+
+### Per-core CPU
+- `src/lib/CpuCores.svelte` — mini sparkline grid for all cores (1-10 on M4)
+- Keyed `{#each}` to prevent flickering on updates
+- Toggleable via Settings → "Show per-core CPU"
+
+### Chart mode toggle
+- Settings UI: Sparkline vs Progress Bar buttons
+- Affects CPU, RAM, Network sections
+- Stored in `popup.chart_mode` ("spark" | "bar")
+
+### Section management
+- Sections render dynamically via `sortedSectionKeys` from settings
+- Split "AI Usage" into `ai_claude` and `ai_codex` (independently toggleable)
+- 8 sections: ai_claude, ai_codex, weekly_chart, compute, storage_network, hardware, bluetooth, history
+- Reorder with ▲▼ arrows in Settings
+- Toggle visibility with checkboxes
+
+### Collapsible sections
+- `SystemSection` has `collapsible` prop (default: true)
+- `<button>` element for a11y, chevron indicator
+
+### History view
+- `src/lib/HistoryView.svelte` — two tabs: Battery and Network
+- Battery: sparkline of health_percent (30 days), current health %, cycle count
+- Network: bar chart of daily download/upload (14 days), period totals
+
+### SQLite persistence
+- `battery_history` table: percent, health_percent, cycle_count, charging (every 30 min)
+- `network_daily` table: date, total_download_bytes, total_upload_bytes (accumulated each tick)
+- Tauri commands: `get_battery_history`, `get_network_daily`
+
+### Live polling interval
+- System metrics loop uses `tokio::time::sleep` + reads SettingsState each iteration
+- Slider changes take effect immediately without restart
+
+### Settings migration
+- `migrate_settings()` merges missing section keys from defaults
+- Old configs auto-upgraded on load
+
+### Backdrop-filter fix
+- Moved to `body::before` pseudo-element to prevent flickering on DOM changes
+- Sections use `contain: layout style` to isolate repaints
 
 ## Known issues
-- Same as before: SMC temps blocked on M4, Bluetooth shows only connected devices
-- Pre-existing warning in SettingsPage.svelte (settings initial capture) — cosmetic, doesn't affect behavior
-- Old `settings.json` files will get sections migrated via `ensureSections()` in SettingsPage
+- **SMC temperatures**: Apple Silicon M4 blocks IOKit SMC access. Temperature section empty.
+- **Bluetooth**: only connected devices shown (system_profiler limitation)
+- **Fans**: MacBook Air M4 is fanless — 0 fans is correct
+- **DMG bundling**: sometimes fails, .app always builds fine
+- **History**: needs data to accumulate (battery every 30min, network each tick)
 
-## Next session priorities
+## Next priorities
 
-### 1. Polish
-- Glass theme: chart bars / sparklines contrast (white on translucent)
-- Settings: drag & drop for tray item reorder (Phase 5 from spec)
-- Smooth sparkline animation on new data points
+### Polish
+- Glass theme: sparkline contrast on translucent background
+- Smooth animation on new sparkline data points
+- Network sparkline scaling (auto-scale to peak)
 
-### 2. Deferred from spec
-- GPU utilization (IOReport framework, undocumented Apple API — Phase 5)
-- System metrics SQLite history (currently real-time only, sparklines reset on restart)
-- Settings polling interval runtime update (currently requires restart)
-- Per-core CPU sparkline (data available in `cpu.per_core`)
+### Deferred
+- GPU utilization (IOReport framework, undocumented Apple API)
+- System metrics SQLite history for CPU/RAM (currently real-time only, sparklines reset on restart)
+- Global hotkey to open popup
+- Per-core CPU: show P-core vs E-core labels
 
 ## Key files
 
 | File | Purpose |
 |---|---|
-| `src/lib/SparkChart.svelte` | **NEW** — SVG area sparkline component |
-| `src/lib/SystemSection.svelte` | **UPDATED** — collapsible sections |
-| `src/lib/SettingsPage.svelte` | **UPDATED** — popup sections toggle/reorder UI |
-| `src/routes/+page.svelte` | **UPDATED** — dynamic section ordering, sparkline history |
-| `src-tauri/src/settings.rs` | **UPDATED** — 7 default sections |
-| `src-tauri/src/lib.rs` | Main app: polling loops, tray, window |
+| `src/lib/SparkChart.svelte` | SVG area sparkline component |
+| `src/lib/CpuCores.svelte` | Per-core CPU mini sparkline grid |
+| `src/lib/HistoryView.svelte` | Battery/Network history tabs |
+| `src/lib/SystemSection.svelte` | Collapsible section wrapper |
+| `src/lib/SettingsPage.svelte` | Settings: theme, chart mode, sections, polling |
+| `src/lib/UsageBar.svelte` | Progress bar (AI usage, disk) |
+| `src/lib/WeeklyChart.svelte` | 7-day AI usage bar chart |
+| `src/routes/+page.svelte` | Main UI: dynamic section ordering, sparkline history |
+| `src-tauri/src/lib.rs` | App setup, polling loops, tray, window |
+| `src-tauri/src/db.rs` | SQLite: usage, battery, network tables |
+| `src-tauri/src/settings.rs` | Settings load/save/migrate/defaults |
 | `src-tauri/src/system_monitor.rs` | sysinfo + battery metrics |
-| `src/lib/UsageBar.svelte` | Still used for AI usage bars and Disk |
-| `src/lib/themes.ts` | 6 theme definitions |
+| `src-tauri/src/swift_bridge.rs` | FFI to Swift dylib (SMC/Bluetooth) |
+| `src-tauri/src/tray_text.rs` | Format tray title string |
+| `src/lib/themes.ts` | 6 themes + applyTheme() |
+
+## Build & run
+
+```bash
+cd /Users/vladislavkonovalov/aiUsagebar
+npm run dev          # dev mode (Vite + Electron) — use native terminal!
+npx tauri build      # release build → src-tauri/target/release/bundle/macos/VibeUsageBar.app
+```
+
+Deploy:
+```bash
+pkill -f vibeusagebar; sleep 1
+rm -rf /Applications/VibeUsageBar.app
+cp -R src-tauri/target/release/bundle/macos/VibeUsageBar.app /Applications/
+open /Applications/VibeUsageBar.app
+```
