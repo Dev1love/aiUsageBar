@@ -19,7 +19,7 @@ use tauri::{
 use tauri_plugin_notification::NotificationExt;
 
 use api::{AllUsage, UsageData};
-use db::{DailySnapshot, Database};
+use db::{BatterySnapshot, DailySnapshot, Database, NetworkDaily};
 use system_monitor::SystemMetrics;
 
 const TRAY_ID: &str = "main-tray";
@@ -155,6 +155,18 @@ fn get_history(db: tauri::State<'_, Database>, days: Option<i32>) -> Result<Vec<
     Ok(db::get_daily_snapshots(&conn, days.unwrap_or(7)))
 }
 
+#[tauri::command]
+fn get_battery_history(db: tauri::State<'_, Database>, days: Option<i32>) -> Result<Vec<BatterySnapshot>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    Ok(db::get_battery_history(&conn, days.unwrap_or(30)))
+}
+
+#[tauri::command]
+fn get_network_daily(db: tauri::State<'_, Database>, days: Option<i32>) -> Result<Vec<NetworkDaily>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    Ok(db::get_network_daily(&conn, days.unwrap_or(30)))
+}
+
 /// Update the tray icon to reflect current usage levels.
 fn update_tray_icon(app_handle: &tauri::AppHandle, usage: &UsageData) {
     // API returns utilization as 0-100 percentage, normalize to 0-1
@@ -261,7 +273,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(UsageState(Mutex::new(None)))
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))
-        .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd, get_system_metrics])
+        .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd, get_system_metrics, get_battery_history, get_network_daily])
         .setup(|app| {
             // Hide dock icon — menubar-only app
             #[cfg(target_os = "macos")]
@@ -348,8 +360,6 @@ pub fn run() {
 
             // Spawn system metrics polling loop
             let sys_handle = app.handle().clone();
-            let sys_settings = app.state::<SettingsState>().0.read().unwrap().clone();
-            let sys_interval = sys_settings.polling.system_interval_sec;
             tauri::async_runtime::spawn(async move {
                 let mut sys = sysinfo::System::new();
                 let mut networks = sysinfo::Networks::new_with_refreshed_list();
@@ -359,12 +369,17 @@ pub fn run() {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
                 let mut tick_count: u64 = 0;
-                let mut interval = tokio::time::interval(
-                    tokio::time::Duration::from_secs(sys_interval),
-                );
+                // Seconds elapsed since last battery DB snapshot (target: 1800s = 30min)
+                let mut secs_since_battery_snapshot: u64 = u64::MAX; // force first snapshot
 
                 loop {
-                    interval.tick().await;
+                    // Read interval dynamically from settings each iteration
+                    let sys_interval = sys_handle
+                        .try_state::<SettingsState>()
+                        .and_then(|s| s.0.read().ok().map(|st| st.polling.system_interval_sec))
+                        .unwrap_or(3);
+
+                    tokio::time::sleep(tokio::time::Duration::from_secs(sys_interval)).await;
                     tick_count += 1;
 
                     let (cpu, ram, disk, net) = system_monitor::refresh_sysinfo_metrics(
@@ -381,6 +396,36 @@ pub fn run() {
                             None
                         }
                     };
+
+                    // Insert battery snapshot every ~30 minutes
+                    secs_since_battery_snapshot += sys_interval;
+                    if secs_since_battery_snapshot >= 1800 {
+                        if let Some(ref batt) = battery {
+                            if let Some(db_state) = sys_handle.try_state::<Database>() {
+                                if let Ok(conn) = db_state.0.lock() {
+                                    db::insert_battery_snapshot(
+                                        &conn,
+                                        batt.percent,
+                                        batt.health_percent,
+                                        batt.cycle_count,
+                                        batt.charging,
+                                    );
+                                }
+                            }
+                        }
+                        secs_since_battery_snapshot = 0;
+                    }
+
+                    // Accumulate network bytes daily
+                    let download_bytes = net.download_speed * sys_interval;
+                    let upload_bytes = net.upload_speed * sys_interval;
+                    if download_bytes > 0 || upload_bytes > 0 {
+                        if let Some(db_state) = sys_handle.try_state::<Database>() {
+                            if let Ok(conn) = db_state.0.lock() {
+                                db::insert_network_daily(&conn, download_bytes, upload_bytes);
+                            }
+                        }
+                    }
 
                     if tick_count == 1 {
                         #[cfg(has_swift_dylib)]

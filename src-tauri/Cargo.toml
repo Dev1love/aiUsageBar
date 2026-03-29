@@ -1,6 +1,6 @@
 [package]
 name = "vibeusagebar"
-version = "0.2.0"
+version = "0.3.0"
 description = "macOS menubar utility for tracking AI usage limits and system monitoring"
 authors = ["you"]
 edition = "2021"

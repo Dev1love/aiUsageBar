@@ -1,72 +1,60 @@
-# VibeUsageBar — Session Handoff (2026-03-22)
+# VibeUsageBar — Session Handoff (2026-03-24)
 
 ## What was done this session
 
-Transformed aiUsageBar (AI-only usage tracker) into **VibeUsageBar v0.2.0** — a unified macOS menubar app with AI usage tracking + system monitoring + themes.
+### 1. SparkChart component (DONE)
+- New `src/lib/SparkChart.svelte` — SVG area sparkline chart component
+- Ring buffer of last 60 samples for CPU, RAM, network down/up
+- SVG `<path>` with gradient area fill, color from CSS variables
+- Threshold colors: green → yellow (80%) → red (95%)
+- Supports `formattedValue` prop for custom display (e.g. network speeds)
+- Replaced UsageBar for CPU and RAM in Compute section
+- Replaced NetworkSpeed with two SparkCharts (download/upload) in Storage & Network
+- Disk stays as UsageBar (static metric, sparkline not useful)
 
-### Completed
-- Renamed project aiUsageBar → VibeUsageBar
-- Settings system (JSON + Rust state + Svelte settings page)
-- Data migration from old com.aiusagebar.app
-- System metrics: CPU, RAM, disk, network via `sysinfo` crate
-- Battery via `battery` crate (with `system_profiler` fallback for health on Apple Silicon)
-- Swift dylib for SMC temps/fans + Bluetooth (compiles, but SMC blocked on M4 by macOS permissions)
-- Rust FFI bridge with `cfg(has_swift_dylib)` conditional compilation
-- Configurable tray text (`tray.set_title()`)
-- Popup closes on focus loss (standard menubar behavior)
-- 6 themes: glass (default), glass-blue, hacker, midnight, cyberpunk, frost
-- Theme live preview in settings
-- Extra usage: fixed cents→dollars, shows real % (142% not capped 100%)
-- Extra usage notifications at 80% and 100%
-- WeeklyChart moved after AI Usage section (not at bottom)
+### 2. Section visibility & ordering (DONE)
+- Sections now render dynamically via `sortedSectionKeys` from settings
+- Split "AI Usage" into separate sections: `ai_claude` and `ai_codex` (independently toggleable)
+- Added `weekly_chart` and `bluetooth` as separate sections
+- Settings UI: "Popup Sections" with toggles and up/down arrows for reorder
+- Rust defaults updated with 7 sections (was 5)
+- Settings persist to `settings.json` via existing save mechanism
 
-### Known issues
-- **SMC temperatures**: Apple Silicon M4 blocks IOKit SMC access without entitlements. Tried `AppleSMCKeysEndpoint`, `IOHIDEventSystemClient` — all return 0. Only `sudo powermetrics` works (needs passwordless sudo). Temperature section currently empty.
-- **Bluetooth**: `system_profiler SPBluetoothDataType` works but shows only connected devices. If nothing connected → empty.
-- **Fans**: MacBook Air M4 is fanless — `0 fans` is correct behavior.
-- **Extra usage credits**: API returns values in cents (2848 = $28.48). Fixed in ExtraUsage.svelte.
+### 3. Collapsible sections (DONE)
+- SystemSection now has `collapsible` prop (default: true)
+- Click section header to collapse/expand
+- Chevron indicator (▸/▾)
+- Proper `<button>` element for a11y
+- Hover effect on header
+
+## Known issues
+- Same as before: SMC temps blocked on M4, Bluetooth shows only connected devices
+- Pre-existing warning in SettingsPage.svelte (settings initial capture) — cosmetic, doesn't affect behavior
+- Old `settings.json` files will get sections migrated via `ensureSections()` in SettingsPage
 
 ## Next session priorities
 
-### 1. SparkChart component (user requested)
-Replace UsageBar progress bars for system metrics (CPU, RAM, network) with real-time area sparkline charts — small SVG or canvas charts that draw continuously, similar to Activity Monitor / Stats app. Need:
-- `src/lib/SparkChart.svelte` — new component
-- Ring buffer of last N values (e.g. 60 samples)
-- SVG `<path>` with area fill
-- Color from CSS variables
-- Replace UsageBar in Compute and Storage & Network sections
-
-### 2. Section visibility & ordering (user requested)
-User wants to toggle popup sections on/off (e.g. hide Codex when not using) and reorder them. Need:
-- Settings UI: list of sections with toggle + drag to reorder
-- Store in `popup.sections` (already has `visible` and `order` in settings schema)
-- Render sections in +page.svelte based on settings order, skip hidden ones
-- Include: AI Usage (Claude), AI Usage (Codex), WeeklyChart, Compute, Storage & Network, Hardware, Bluetooth
-
-### 3. Polish
-- Glass theme: chart bars don't contrast well (white on translucent)
+### 1. Polish
+- Glass theme: chart bars / sparklines contrast (white on translucent)
 - Settings: drag & drop for tray item reorder (Phase 5 from spec)
-- Collapsible sections in popup
+- Smooth sparkline animation on new data points
 
-### 3. Deferred from spec
+### 2. Deferred from spec
 - GPU utilization (IOReport framework, undocumented Apple API — Phase 5)
-- System metrics SQLite history (currently real-time only)
+- System metrics SQLite history (currently real-time only, sparklines reset on restart)
 - Settings polling interval runtime update (currently requires restart)
+- Per-core CPU sparkline (data available in `cpu.per_core`)
 
 ## Key files
 
 | File | Purpose |
 |---|---|
-| `src-tauri/src/lib.rs` | Main app: polling loops, tray, window, notifications |
+| `src/lib/SparkChart.svelte` | **NEW** — SVG area sparkline component |
+| `src/lib/SystemSection.svelte` | **UPDATED** — collapsible sections |
+| `src/lib/SettingsPage.svelte` | **UPDATED** — popup sections toggle/reorder UI |
+| `src/routes/+page.svelte` | **UPDATED** — dynamic section ordering, sparkline history |
+| `src-tauri/src/settings.rs` | **UPDATED** — 7 default sections |
+| `src-tauri/src/lib.rs` | Main app: polling loops, tray, window |
 | `src-tauri/src/system_monitor.rs` | sysinfo + battery metrics |
-| `src-tauri/src/swift_bridge.rs` | FFI to Swift dylib (conditional) |
-| `src-tauri/src/settings.rs` | Settings load/save/defaults |
-| `src-tauri/src/tray_text.rs` | Format tray title string |
-| `src-tauri/swift/SystemMonitor.swift` | SMC + Bluetooth via IOKit |
-| `src/lib/themes.ts` | 6 theme definitions + applyTheme() |
-| `src/routes/+page.svelte` | Main UI with all sections |
-| `src/lib/SettingsPage.svelte` | Settings with theme picker |
-
-## Spec & Plan docs
-- `docs/superpowers/specs/2026-03-22-vibeusagebar-system-monitor-design.md`
-- `docs/superpowers/plans/2026-03-22-vibeusagebar-system-monitor.md`
+| `src/lib/UsageBar.svelte` | Still used for AI usage bars and Disk |
+| `src/lib/themes.ts` | 6 theme definitions |

@@ -6,11 +6,13 @@
   import ExtraUsage from '$lib/ExtraUsage.svelte';
   import WeeklyChart from '$lib/WeeklyChart.svelte';
   import SystemSection from '$lib/SystemSection.svelte';
+  import SparkChart from '$lib/SparkChart.svelte';
+  import CpuCores from '$lib/CpuCores.svelte';
   import TempGauge from '$lib/TempGauge.svelte';
   import BluetoothList from '$lib/BluetoothList.svelte';
+  import HistoryView from '$lib/HistoryView.svelte';
   import SettingsPage from '$lib/SettingsPage.svelte';
   import type { AllUsage, SystemMetrics, UserSettings } from '$lib/types';
-  import NetworkSpeed from '$lib/NetworkSpeed.svelte';
   import { applyTheme, type ThemeName } from '$lib/themes';
 
   let usage: AllUsage | null = $state(null);
@@ -18,6 +20,44 @@
   let error: string | null = $state(null);
   let systemMetrics: SystemMetrics | null = $state(null);
   let currentSettings: UserSettings | null = $state(null);
+
+  // Sparkline history (ring buffer, max 60 samples)
+  const MAX_HISTORY = 60;
+  let cpuHistory: number[] = $state([]);
+  let ramHistory: number[] = $state([]);
+  let netDownHistory: number[] = $state([]);
+  let netUpHistory: number[] = $state([]);
+  let perCoreHistory: number[][] = $state([]);
+
+  function pushHistory(arr: number[], value: number): number[] {
+    const next = [...arr, value];
+    return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+  }
+
+  function formatSpeed(bytes: number): string {
+    if (bytes >= 1_073_741_824) return `${(bytes / 1_073_741_824).toFixed(1)} GB/s`;
+    if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB/s`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB/s`;
+    return `${bytes} B/s`;
+  }
+
+  // Chart display mode
+  let chartMode = $derived((currentSettings as UserSettings | null)?.popup?.chart_mode ?? 'spark');
+
+  // Section visibility helper
+  function sectionVisible(key: string): boolean {
+    const cfg = currentSettings?.popup?.sections?.[key];
+    return cfg?.visible ?? true;
+  }
+
+  // Sorted section keys for rendering order
+  let sortedSectionKeys = $derived.by(() => {
+    const sections = currentSettings?.popup?.sections;
+    if (!sections) return ['ai_claude', 'ai_codex', 'weekly_chart', 'compute', 'storage_network', 'hardware', 'bluetooth', 'history'];
+    return Object.entries(sections)
+      .sort(([, a], [, b]) => a.order - b.order)
+      .map(([key]) => key);
+  });
 
   onMount(() => {
     // Apply default theme immediately
@@ -37,6 +77,21 @@
 
     listen<SystemMetrics>('system-update', (event) => {
       systemMetrics = event.payload;
+      const m = event.payload;
+      cpuHistory = pushHistory(cpuHistory, m.cpu.overall);
+      ramHistory = pushHistory(ramHistory, (m.ram.used_gb / m.ram.total_gb) * 100);
+      netDownHistory = pushHistory(netDownHistory, m.network.download_speed);
+      netUpHistory = pushHistory(netUpHistory, m.network.upload_speed);
+      // Per-core history (mutate in place to avoid full re-render)
+      if (m.cpu.per_core.length > 0) {
+        if (perCoreHistory.length !== m.cpu.per_core.length) {
+          perCoreHistory = m.cpu.per_core.map((v: number) => [v]);
+        } else {
+          for (let i = 0; i < m.cpu.per_core.length; i++) {
+            perCoreHistory[i] = pushHistory(perCoreHistory[i], m.cpu.per_core[i]);
+          }
+        }
+      }
     }).then((fn) => { unlistenSystem = fn; });
 
     invoke<AllUsage | null>('get_usage').then((cached) => {
@@ -102,10 +157,9 @@
       {/if}
     </div>
   {:else if usage}
-    <SystemSection title="AI Usage">
-      {#if usage.claude}
-        <div class="provider-block">
-          <div class="provider-label">Claude Code</div>
+    {#each sortedSectionKeys as sectionKey (sectionKey)}
+      {#if sectionKey === 'ai_claude' && sectionVisible('ai_claude') && usage.claude}
+        <SystemSection title="AI Usage — Claude">
           <UsageBar
             label="5-hour session"
             utilization={usage.claude.five_hour.utilization}
@@ -123,12 +177,11 @@
               utilization={usage.claude.extra_usage.utilization}
             />
           {/if}
-        </div>
+        </SystemSection>
       {/if}
 
-      {#if usage.codex}
-        <div class="provider-block">
-          <div class="provider-label">Codex CLI</div>
+      {#if sectionKey === 'ai_codex' && sectionVisible('ai_codex') && usage.codex}
+        <SystemSection title="AI Usage — Codex">
           <UsageBar
             label="5-hour session"
             utilization={usage.codex.primary.utilization}
@@ -149,39 +202,81 @@
               </span>
             </div>
           {/if}
-        </div>
+        </SystemSection>
       {/if}
-    </SystemSection>
 
-    <WeeklyChart />
+      {#if sectionKey === 'weekly_chart' && sectionVisible('weekly_chart')}
+        <WeeklyChart />
+      {/if}
 
-    {#if systemMetrics}
-      <SystemSection title="Compute">
-        <UsageBar label="CPU" utilization={systemMetrics.cpu.overall} />
-        <UsageBar
-          label="RAM"
-          utilization={(systemMetrics.ram.used_gb / systemMetrics.ram.total_gb) * 100}
-        />
-        <div class="metric-detail">
-          {systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(0)} GB
-        </div>
-      </SystemSection>
+      {#if sectionKey === 'compute' && sectionVisible('compute') && systemMetrics}
+        <SystemSection title="Compute">
+          {#if chartMode === 'spark'}
+            <SparkChart
+              label="CPU"
+              values={cpuHistory}
+              current={systemMetrics.cpu.overall}
+            />
+            <SparkChart
+              label="RAM"
+              values={ramHistory}
+              current={(systemMetrics.ram.used_gb / systemMetrics.ram.total_gb) * 100}
+              detail="{systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(0)} GB"
+            />
+          {:else}
+            <UsageBar label="CPU" utilization={systemMetrics.cpu.overall} />
+            <UsageBar
+              label="RAM"
+              utilization={(systemMetrics.ram.used_gb / systemMetrics.ram.total_gb) * 100}
+            />
+            <div class="metric-detail">
+              {systemMetrics.ram.used_gb.toFixed(1)} / {systemMetrics.ram.total_gb.toFixed(0)} GB
+            </div>
+          {/if}
+          {#if currentSettings?.popup?.show_per_core !== false && systemMetrics.cpu.per_core.length > 0}
+            <CpuCores cores={systemMetrics.cpu.per_core} history={perCoreHistory} />
+          {/if}
+        </SystemSection>
+      {/if}
 
-      <SystemSection title="Storage & Network">
-        <UsageBar
-          label="Disk"
-          utilization={(systemMetrics.disk.used_gb / systemMetrics.disk.total_gb) * 100}
-        />
-        <div class="metric-detail">
-          {systemMetrics.disk.used_gb.toFixed(0)} / {systemMetrics.disk.total_gb.toFixed(0)} GB
-        </div>
-        <NetworkSpeed
-          download={systemMetrics.network.download_speed}
-          upload={systemMetrics.network.upload_speed}
-        />
-      </SystemSection>
+      {#if sectionKey === 'storage_network' && sectionVisible('storage_network') && systemMetrics}
+        <SystemSection title="Storage & Network">
+          <UsageBar
+            label="Disk"
+            utilization={(systemMetrics.disk.used_gb / systemMetrics.disk.total_gb) * 100}
+          />
+          <div class="metric-detail">
+            {systemMetrics.disk.used_gb.toFixed(0)} / {systemMetrics.disk.total_gb.toFixed(0)} GB
+          </div>
+          {#if chartMode === 'spark'}
+            <SparkChart
+              label="Network ↓"
+              values={netDownHistory}
+              current={systemMetrics.network.download_speed}
+              formattedValue={formatSpeed(systemMetrics.network.download_speed)}
+              color="var(--net-down)"
+              maxValue={Math.max(1024, ...netDownHistory)}
+              height={32}
+            />
+            <SparkChart
+              label="Network ↑"
+              values={netUpHistory}
+              current={systemMetrics.network.upload_speed}
+              formattedValue={formatSpeed(systemMetrics.network.upload_speed)}
+              color="var(--net-up)"
+              maxValue={Math.max(1024, ...netUpHistory)}
+              height={32}
+            />
+          {:else}
+            <div class="network-bar">
+              <span class="net-label">↓ {formatSpeed(systemMetrics.network.download_speed)}</span>
+              <span class="net-label net-up">↑ {formatSpeed(systemMetrics.network.upload_speed)}</span>
+            </div>
+          {/if}
+        </SystemSection>
+      {/if}
 
-      {#if systemMetrics.battery || systemMetrics.temps.length > 0 || systemMetrics.fans.length > 0}
+      {#if sectionKey === 'hardware' && sectionVisible('hardware') && systemMetrics && (systemMetrics.battery || systemMetrics.temps.length > 0 || systemMetrics.fans.length > 0)}
         <SystemSection title="Hardware">
           <TempGauge temps={systemMetrics.temps} fans={systemMetrics.fans} />
           {#if systemMetrics.battery}
@@ -197,12 +292,18 @@
         </SystemSection>
       {/if}
 
-      {#if systemMetrics.bluetooth.length > 0}
+      {#if sectionKey === 'bluetooth' && sectionVisible('bluetooth') && systemMetrics && systemMetrics.bluetooth.length > 0}
         <SystemSection title="Bluetooth">
           <BluetoothList devices={systemMetrics.bluetooth} />
         </SystemSection>
       {/if}
-    {/if}
+
+      {#if sectionKey === 'history' && sectionVisible('history')}
+        <SystemSection title="History">
+          <HistoryView />
+        </SystemSection>
+      {/if}
+    {/each}
   {:else}
     <div class="loading">
       <div class="spinner"></div>
@@ -212,6 +313,10 @@
 </main>
 
 <style>
+:global(html) {
+  background: transparent;
+}
+
 :global(body) {
   margin: 0;
   padding: 0;
@@ -222,14 +327,25 @@
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-font-smoothing: antialiased;
+  position: relative;
+}
+
+:global(body::before) {
+  content: '';
+  position: fixed;
+  inset: 0;
   -webkit-backdrop-filter: var(--backdrop, none);
   backdrop-filter: var(--backdrop, none);
+  z-index: -1;
+  pointer-events: none;
 }
 
 main {
   padding: 18px 20px 16px;
   width: 350px;
   box-sizing: border-box;
+  position: relative;
+  z-index: 0;
 }
 
 header {
@@ -262,24 +378,6 @@ h1 {
   background: var(--danger);
 }
 
-.provider-block {
-  margin-bottom: 8px;
-}
-
-.provider-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  color: var(--text-dim);
-  margin-bottom: 10px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--border);
-}
-
-.provider-block + .provider-block {
-  padding-top: 8px;
-}
 
 .header-right {
   display: flex;
@@ -397,4 +495,14 @@ h1 {
   font-size: 11px;
   color: var(--text-dim);
 }
+
+.network-bar {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0;
+}
+.net-label { color: var(--net-down); }
+.net-label.net-up { color: var(--net-up); }
 </style>

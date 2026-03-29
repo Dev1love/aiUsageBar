@@ -94,6 +94,21 @@ export interface SystemMetrics {
   bluetooth: BtDevice[];
 }
 
+// History types
+export interface BatterySnapshot {
+  timestamp: string;
+  percent: number;
+  health_percent: number;
+  cycle_count: number;
+  charging: boolean;
+}
+
+export interface NetworkDaily {
+  date: string;
+  total_download_bytes: number;
+  total_upload_bytes: number;
+}
+
 // Settings types
 export interface TraySettings {
   items: string[];
@@ -114,6 +129,8 @@ export interface SectionConfig {
 
 export interface PopupSettings {
   sections: Record<string, SectionConfig>;
+  chart_mode: 'spark' | 'bar';
+  show_per_core: boolean;
 }
 
 export interface UserSettings {

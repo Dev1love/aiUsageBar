@@ -78,6 +78,82 @@
       .join(local.tray.separator);
   });
 
+  // Popup sections management
+  const sectionLabels: Record<string, string> = {
+    ai_claude: 'AI Usage (Claude)',
+    ai_codex: 'AI Usage (Codex)',
+    weekly_chart: 'Weekly Chart',
+    compute: 'Compute',
+    storage_network: 'Storage & Network',
+    hardware: 'Hardware',
+    bluetooth: 'Bluetooth',
+    history: 'History',
+  };
+
+  // Ensure all sections exist in settings (migration for older configs)
+  function ensureSections() {
+    if (!local.popup) local.popup = { sections: {} };
+    if (!local.popup.sections) local.popup.sections = {};
+    let maxOrder = -1;
+    for (const cfg of Object.values(local.popup.sections) as Array<{visible: boolean; order: number}>) {
+      if (cfg.order > maxOrder) maxOrder = cfg.order;
+    }
+    for (const key of Object.keys(sectionLabels)) {
+      if (!local.popup.sections[key]) {
+        maxOrder++;
+        local.popup.sections[key] = { visible: true, order: maxOrder };
+      }
+    }
+  }
+  ensureSections();
+
+  let sortedSections = $derived.by(() => {
+    return Object.entries(sectionLabels)
+      .map(([key, label]) => ({
+        key,
+        label,
+        visible: local.popup.sections[key]?.visible ?? true,
+        order: local.popup.sections[key]?.order ?? 99,
+      }))
+      .sort((a, b) => a.order - b.order);
+  });
+
+  function toggleSection(key: string) {
+    local.popup.sections[key] = {
+      ...local.popup.sections[key],
+      visible: !local.popup.sections[key].visible,
+    };
+  }
+
+  function moveSection(key: string, direction: -1 | 1) {
+    const sorted = [...sortedSections];
+    const idx = sorted.findIndex(s => s.key === key);
+    const swapIdx = idx + direction;
+    if (swapIdx < 0 || swapIdx >= sorted.length) return;
+    const thisKey = sorted[idx].key;
+    const otherKey = sorted[swapIdx].key;
+    const thisOrder = local.popup.sections[thisKey].order;
+    const otherOrder = local.popup.sections[otherKey].order;
+    local.popup.sections[thisKey] = { ...local.popup.sections[thisKey], order: otherOrder };
+    local.popup.sections[otherKey] = { ...local.popup.sections[otherKey], order: thisOrder };
+  }
+
+  // Drag & drop reorder (pointer-based, no HTML5 drag API issues)
+  let dragIdx: number | null = $state(null);
+  let overIdx: number | null = $state(null);
+
+  function reorderSections(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx) return;
+    const sorted = [...sortedSections];
+    const item = sorted.splice(fromIdx, 1)[0];
+    sorted.splice(toIdx, 0, item);
+    const newSections = { ...local.popup.sections };
+    for (let i = 0; i < sorted.length; i++) {
+      newSections[sorted[i].key] = { ...newSections[sorted[i].key], order: i };
+    }
+    local.popup.sections = newSections;
+  }
+
   async function save() {
     // Remove disabled items before saving
     local.tray.items = local.tray.items.filter((k: string) => !disabledItems.has(k));
@@ -114,6 +190,35 @@
   </div>
 
   <div class="settings-section">
+    <h3>Chart Style</h3>
+    <div class="chart-mode-picker">
+      <button
+        class="mode-btn"
+        class:active={local.popup.chart_mode === 'spark'}
+        onclick={() => local.popup.chart_mode = 'spark'}
+      >
+        <svg width="24" height="14" viewBox="0 0 24 14"><path d="M0,12 C4,12 4,4 8,6 C12,8 12,2 16,2 C20,2 20,8 24,10" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+        Sparkline
+      </button>
+      <button
+        class="mode-btn"
+        class:active={local.popup.chart_mode === 'bar'}
+        onclick={() => local.popup.chart_mode = 'bar'}
+      >
+        <svg width="24" height="14" viewBox="0 0 24 14"><rect x="0" y="4" width="18" height="6" rx="2" fill="currentColor" opacity="0.7"/><rect x="0" y="4" width="24" height="6" rx="2" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        Progress Bar
+      </button>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <label class="inline-toggle">
+      <input type="checkbox" bind:checked={local.popup.show_per_core} />
+      <span>Show per-core CPU</span>
+    </label>
+  </div>
+
+  <div class="settings-section">
     <h3>Tray Display</h3>
     <div class="tray-items">
       {#each availableItems as item}
@@ -138,6 +243,28 @@
       <span class="preview-text">
         {previewText || '(empty)'}
       </span>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h3>Popup Sections</h3>
+    <div class="section-list">
+      {#each sortedSections as section, i (section.key)}
+        <div class="section-row">
+          <div class="section-arrows">
+            <button class="arrow-btn" disabled={i === 0} onclick={() => reorderSections(i, i - 1)}>▲</button>
+            <button class="arrow-btn" disabled={i === sortedSections.length - 1} onclick={() => reorderSections(i, i + 1)}>▼</button>
+          </div>
+          <label class="section-toggle">
+            <input
+              type="checkbox"
+              checked={section.visible}
+              onchange={() => toggleSection(section.key)}
+            />
+            <span class:dimmed={!section.visible}>{section.label}</span>
+          </label>
+        </div>
+      {/each}
     </div>
   </div>
 
@@ -182,4 +309,19 @@
   .theme-swatch { width: 40px; height: 40px; border-radius: 8px; border: 2px solid transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: border-color 0.2s; }
   .theme-swatch.active { border-color: var(--accent) !important; }
   .swatch-dot { width: 12px; height: 12px; border-radius: 50%; }
+  .section-list { display: flex; flex-direction: column; gap: 2px; }
+  .section-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .section-arrows { display: flex; flex-direction: column; gap: 0; }
+  .arrow-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 8px; padding: 0 4px; line-height: 1.2; }
+  .arrow-btn:hover:not(:disabled) { color: var(--accent); }
+  .arrow-btn:disabled { opacity: 0.2; cursor: default; }
+  .section-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .section-toggle input { accent-color: var(--accent); }
+  .dimmed { opacity: 0.4; }
+  .inline-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .inline-toggle input { accent-color: var(--accent); }
+  .chart-mode-picker { display: flex; gap: 8px; }
+  .mode-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .mode-btn:hover { border-color: var(--text-dim); }
+  .mode-btn.active { border-color: var(--accent); color: var(--accent); background: var(--btn-hover); }
 </style>
