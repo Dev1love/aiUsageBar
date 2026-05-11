@@ -31,6 +31,20 @@ npx tauri build
 
 The `.app` bundle will be in `src-tauri/target/release/bundle/macos/`. Drag it to `/Applications`.
 
+### macOS 26 (Tahoe) — first launch
+
+On macOS 26 every new third-party menubar item starts in a "blocked"
+state. After first launch the icon will not appear until you approve it:
+
+**System Settings → Control Center → Menu Bar items → enable VibeUsageBar**
+
+(or open the menubar customization view and drag VibeUsageBar out of the
+hidden tray). One-time action; persists across launches.
+
+The app must be started via `open -a VibeUsageBar` or by clicking the
+bundle — launching the raw binary directly bypasses LaunchServices and the
+icon will not register with ControlCenter.
+
 ## Development
 
 ```bash

@@ -112,8 +112,8 @@
 </script>
 
 <main>
-  <header>
-    <h1>VibeUsageBar</h1>
+  <header data-tauri-drag-region>
+    <h1 data-tauri-drag-region>VibeUsageBar</h1>
     <div class="header-right">
       <span class="dot" class:online={!error && usage} class:offline={error}></span>
       <button class="gear-btn" aria-label="Settings" onclick={() => {

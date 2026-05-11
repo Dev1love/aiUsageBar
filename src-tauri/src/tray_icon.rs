@@ -11,7 +11,8 @@ const GREEN: [u8; 4] = [0x4a, 0xde, 0x80, 255];
 const YELLOW: [u8; 4] = [0xfa, 0xcc, 0x15, 255];
 const RED: [u8; 4] = [0xef, 0x44, 0x44, 255];
 const GRAY: [u8; 4] = [0x66, 0x66, 0x66, 255];
-const BG: [u8; 4] = [0x3a, 0x3a, 0x4a, 255];
+// Empty bar background — medium gray with translucency so it's visible on both dark and light menubars.
+const BG: [u8; 4] = [0x90, 0x90, 0x9a, 0xb0];
 
 /// Returns the color for a given utilization: green <80%, yellow 80-94%, red >=95%.
 pub fn color_for_utilization(util: f64) -> [u8; 4] {

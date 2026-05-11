@@ -8,15 +8,20 @@ mod tray_icon;
 mod tray_text;
 
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::RwLock;
 
 use tauri::{
-    image::Image,
-    menu::{MenuBuilder, MenuItemBuilder},
-    tray::{TrayIconBuilder, TrayIconId},
     Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
-use tauri_plugin_notification::NotificationExt;
+
+static APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+extern "C" fn on_tray_click() {
+    if let Some(handle) = APP_HANDLE.get() {
+        toggle_popup(handle);
+    }
+}
 
 use api::{AllUsage, UsageData};
 use db::{BatterySnapshot, DailySnapshot, Database, NetworkDaily};
@@ -51,7 +56,7 @@ struct NotificationTracker(Mutex<NotificationState>);
 
 /// Send a notification if the threshold is crossed and hasn't been notified for this reset cycle.
 fn maybe_notify(
-    app_handle: &tauri::AppHandle,
+    _app_handle: &tauri::AppHandle,
     utilization: f64,
     resets_at: &str,
     threshold: u8,
@@ -62,12 +67,7 @@ fn maybe_notify(
     let pct = utilization as u8;
     if pct >= threshold {
         if last_reset.as_deref() != Some(resets_at) {
-            let _ = app_handle
-                .notification()
-                .builder()
-                .title("VibeUsageBar")
-                .body(body)
-                .show();
+            swift_bridge::notification::show("VibeUsageBar", body);
             *last_reset = Some(resets_at.to_string());
         }
     }
@@ -95,19 +95,14 @@ fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
     // Extra usage notifications (no reset cycle — fire once per app session)
     if let Some(util) = usage.extra_usage.utilization {
         if util >= 100.0 && !state.extra_100_fired {
-            let _ = app_handle.notification().builder()
-                .title("VibeUsageBar")
-                .body("Extra usage at 100% — monthly limit reached!")
-                .show();
+            swift_bridge::notification::show("VibeUsageBar", "Extra usage at 100% — monthly limit reached!");
             state.extra_100_fired = true;
         } else if util >= 80.0 && !state.extra_80_fired {
-            let _ = app_handle.notification().builder()
-                .title("VibeUsageBar")
-                .body("Extra usage at 80% of monthly limit")
-                .show();
+            swift_bridge::notification::show("VibeUsageBar", "Extra usage at 80% of monthly limit");
             state.extra_80_fired = true;
         }
     }
+    let _ = app_handle;
 }
 
 /// Shared state holding the latest usage data.
@@ -168,29 +163,17 @@ fn get_network_daily(db: tauri::State<'_, Database>, days: Option<i32>) -> Resul
 }
 
 /// Update the tray icon to reflect current usage levels.
-fn update_tray_icon(app_handle: &tauri::AppHandle, usage: &UsageData) {
-    // API returns utilization as 0-100 percentage, normalize to 0-1
+fn update_tray_icon(_app_handle: &tauri::AppHandle, usage: &UsageData) {
     let session_util = usage.five_hour.utilization / 100.0;
     let weekly_util = usage.seven_day.utilization / 100.0;
-    let icon_rgba = tray_icon::render_tray_icon(
-        session_util,
-        weekly_util,
-        None,
-        None,
-    );
-    let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
-    if let Some(tray) = app_handle.tray_by_id(&TrayIconId::new(TRAY_ID)) {
-        let _ = tray.set_icon(Some(icon));
-    }
+    let icon_rgba = tray_icon::render_tray_icon(session_util, weekly_util, None, None);
+    swift_bridge::tray::set_icon_rgba(&icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
 }
 
 /// Set the tray icon to the dimmed/gray error state.
-fn set_tray_error_icon(app_handle: &tauri::AppHandle) {
+fn set_tray_error_icon(_app_handle: &tauri::AppHandle) {
     let icon_rgba = tray_icon::render_error_icon();
-    let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
-    if let Some(tray) = app_handle.tray_by_id(&TrayIconId::new(TRAY_ID)) {
-        let _ = tray.set_icon(Some(icon));
-    }
+    swift_bridge::tray::set_icon_rgba(&icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
 }
 
 /// Handle successful usage fetch: update state, store snapshot, update tray, notify, emit event.
@@ -271,6 +254,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(UsageState(Mutex::new(None)))
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))
         .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd, get_system_metrics, get_battery_history, get_network_daily])
@@ -307,36 +291,26 @@ pub fn run() {
                 .map_err(|e| format!("Database init failed: {e}"))?;
             app.manage(Database(Mutex::new(conn)));
 
-            // Render default tray icon (green bars at 0%)
-            let icon_rgba = tray_icon::render_default_icon();
-            // eprintln!("[aiUsageBar] Icon RGBA data length: {} (expected {})", icon_rgba.len(), RETINA_ICON_SIZE * RETINA_ICON_SIZE * 4);
-            let icon = Image::new_owned(icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
+            // Native Swift NSStatusItem (macOS 26 doesn't render Tauri tray icons).
+            let _ = APP_HANDLE.set(app.handle().clone());
+            let tray_ok = swift_bridge::tray::init(on_tray_click);
+            if tray_ok {
+                let icon_rgba = tray_icon::render_default_icon();
+                swift_bridge::tray::set_icon_rgba(&icon_rgba, RETINA_ICON_SIZE, RETINA_ICON_SIZE);
+            } else {
+                eprintln!("[VibeUsageBar] Native tray init failed");
+            }
 
-            let app_handle = app.handle().clone();
-
-            // Build a simple context menu for the tray
-            let quit = MenuItemBuilder::with_id("quit", "Quit VibeUsageBar").build(app)?;
-            let menu = MenuBuilder::new(app).item(&quit).build()?;
-
-            // eprintln!("[aiUsageBar] Building tray icon...");
-            TrayIconBuilder::with_id(TRAY_ID)
-                .icon(icon)
-                .icon_as_template(false)
-                .tooltip("VibeUsageBar")
-                .menu(&menu)
-                .on_menu_event(|app, event| {
-                    if event.id().as_ref() == "quit" {
-                        app.exit(0);
+            // Register global shortcut Shift+Option+V
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let shortcut_handle = app.handle().clone();
+                app.global_shortcut().on_shortcut("shift+alt+d", move |_app, _shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        toggle_popup(&shortcut_handle);
                     }
-                })
-                .on_tray_icon_event(move |_tray, event| {
-                    if let tauri::tray::TrayIconEvent::Click { .. } = event {
-                        toggle_popup(&app_handle);
-                    }
-                })
-                .build(app)?;
-
-            // eprintln!("[aiUsageBar] Tray icon created successfully!");
+                })?;
+            }
 
             // Spawn background polling loop
             let poll_handle = app.handle().clone();
@@ -396,6 +370,30 @@ pub fn run() {
                             None
                         }
                     };
+
+                    // Battery low notifications
+                    if let Some(ref batt) = battery {
+                        if !batt.charging {
+                            let pct = batt.percent as u32;
+                            if pct <= 10 && pct > 0 {
+                                // Notify every ~5 minutes at critical level
+                                if tick_count % (300 / sys_interval).max(1) == 0 {
+                                    swift_bridge::notification::show(
+                                        "🪫 Battery Critical",
+                                        &format!("{}% — plug in now!", pct),
+                                    );
+                                }
+                            } else if pct <= 20 {
+                                // Notify once when crossing 20%
+                                if tick_count % (600 / sys_interval).max(1) == 0 {
+                                    swift_bridge::notification::show(
+                                        "🔋 Battery Low",
+                                        &format!("{}% remaining", pct),
+                                    );
+                                }
+                            }
+                        }
+                    }
 
                     // Insert battery snapshot every ~30 minutes
                     secs_since_battery_snapshot += sys_interval;
@@ -479,9 +477,7 @@ pub fn run() {
                                 .and_then(|s| s.0.lock().ok().map(|d| d.clone()))
                                 .flatten();
                             let title = tray_text::format_tray_title(&settings.tray, &metrics, &ai);
-                            if let Some(tray) = sys_handle.tray_by_id(&tauri::tray::TrayIconId::new(TRAY_ID)) {
-                                let _ = tray.set_title(Some(&title));
-                            }
+                            swift_bridge::tray::set_title(&title);
                         }
                     }
                 }

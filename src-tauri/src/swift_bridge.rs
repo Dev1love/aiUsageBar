@@ -11,6 +11,10 @@ mod ffi {
         fn smc_read_all() -> *mut c_char;
         fn bt_get_devices() -> *mut c_char;
         fn free_string(ptr: *mut c_char);
+        pub fn tray_init(callback: extern "C" fn()) -> bool;
+        pub fn tray_set_title(cstr: *const c_char);
+        pub fn tray_set_icon_rgba(bytes: *const u8, width: i32, height: i32);
+        pub fn notification_show(title: *const c_char, body: *const c_char);
     }
 
     #[derive(Deserialize, Default)]
@@ -57,4 +61,49 @@ pub fn get_bluetooth_devices() -> Vec<BtDevice> {
     { ffi::get_bluetooth_devices() }
     #[cfg(not(has_swift_dylib))]
     { vec![] }
+}
+
+pub mod tray {
+    pub fn init(callback: extern "C" fn()) -> bool {
+        #[cfg(has_swift_dylib)]
+        unsafe { super::ffi::tray_init(callback) }
+        #[cfg(not(has_swift_dylib))]
+        { let _ = callback; false }
+    }
+
+    pub fn set_title(s: &str) {
+        #[cfg(has_swift_dylib)]
+        {
+            if let Ok(cstr) = std::ffi::CString::new(s) {
+                unsafe { super::ffi::tray_set_title(cstr.as_ptr()); }
+            }
+        }
+        #[cfg(not(has_swift_dylib))]
+        { let _ = s; }
+    }
+
+    pub fn set_icon_rgba(rgba: &[u8], width: u32, height: u32) {
+        #[cfg(has_swift_dylib)]
+        unsafe {
+            super::ffi::tray_set_icon_rgba(rgba.as_ptr(), width as i32, height as i32);
+        }
+        #[cfg(not(has_swift_dylib))]
+        { let _ = (rgba, width, height); }
+    }
+}
+
+pub mod notification {
+    pub fn show(title: &str, body: &str) {
+        #[cfg(has_swift_dylib)]
+        {
+            if let (Ok(t), Ok(b)) = (
+                std::ffi::CString::new(title),
+                std::ffi::CString::new(body),
+            ) {
+                unsafe { super::ffi::notification_show(t.as_ptr(), b.as_ptr()); }
+            }
+        }
+        #[cfg(not(has_swift_dylib))]
+        { let _ = (title, body); }
+    }
 }

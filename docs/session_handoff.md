@@ -1,3 +1,97 @@
+# VibeUsageBar — Session Handoff (2026-05-11)
+
+## macOS 26 (Tahoe) tray + notifications fix
+
+### Symptom
+On macOS 26.3.1 (MacBook Air M4) the menubar icon never appeared, even though
+`TrayIconBuilder::build()` returned `Ok` and the app process was alive. Push
+notifications worked but clicking them did nothing. Affects Tauri 2.10.x and
+2.11.x equally; not a regression in our code.
+
+### Root cause
+1. Tauri's `tray-icon`/`muda` crate creates the `NSStatusItem` synchronously
+   inside `setup()` — i.e. *before* the NSApp event loop is pumping. On macOS
+   26 ControlCenter's new `appStatusItems` registry never picks those items
+   up (no `Host properties initialized` log line for our bundle id).
+2. `tauri-plugin-notification` on desktop has no public click handler API;
+   the "Click to open" body text was misleading.
+3. macOS 26 also gates *all* newly-registered third-party status items behind
+   a per-app visibility toggle in System Settings → Control Center → Menu Bar
+   ("blocked host" state on first registration).
+
+### Fix — bypass Tauri's tray/notification path on macOS via Swift dylib
+
+Implemented a native AppKit/UserNotifications layer inside the existing
+`libsystem_monitor.dylib` (already linked for SMC). All menu-bar and
+notification calls now go through this dylib via FFI; the Tauri tray-icon
+crate is still in the dependency tree but no longer instantiated.
+
+- `swift/SystemMonitor.swift`
+  - `+import AppKit, UserNotifications`
+  - `TrayDelegate` (NSObject) — click handler dispatches left-click → Rust
+    callback (toggle popup), right-click / Ctrl-click → context menu (Quit)
+  - `tray_init(callback)` — async-dispatches to main thread so it runs AFTER
+    NSApp event loop starts (the critical change vs. Tauri's approach)
+  - `tray_set_title(cstr)`, `tray_set_icon_rgba(bytes, w, h)` — main-thread
+    async updates to button title/image
+  - `NotificationDelegate` (UNUserNotificationCenterDelegate) — taps invoke
+    the same Rust callback (toggle popup), so notification clicks work
+  - `notification_show(title, body)` — replaces all `app.notification()...`
+    sites
+- `build.rs` — `+-framework AppKit`
+- `src/swift_bridge.rs` — `tray` and `notification` modules with cfg-gated
+  FFI declarations
+- `src/lib.rs`
+  - Removed `TrayIconBuilder`, removed `NotificationExt` import
+  - `static APP_HANDLE: OnceLock<AppHandle>` + `extern "C" fn on_tray_click`
+    callback registered with Swift
+  - All 5 notification call sites use `swift_bridge::notification::show(...)`
+  - `update_tray_icon` / `set_tray_error_icon` / system metrics loop's
+    title update all route through `swift_bridge::tray::*`
+- `src/tray_icon.rs` — empty-bar background colour bumped from dark navy
+  `0x3a3a4a` to mid-grey `0x90909a` so the 0%-utilization initial icon is
+  legible on both light and dark menubars
+- Tauri stack bumped: 2.10.3 → 2.11.1, `tray-icon` 0.21.3 → 0.23.1
+  (`Cargo.toml`, `Cargo.lock`, `package.json`, `package-lock.json`).
+  This did not fix the issue on its own but is required for future Tauri
+  compatibility and brings in unrelated wry/runtime fixes.
+
+### One-time user action required after install
+macOS 26 marks new third-party status items as "blocked host" on first
+registration. The user must approve VibeUsageBar once via:
+
+  **System Settings → Control Center → Menu Bar → enable VibeUsageBar**
+
+(or drag it out from the hidden tray in the menubar customization view).
+After that the icon shows on every subsequent launch automatically.
+
+### Launch quirk
+`open -a VibeUsageBar` (LaunchServices flow) is required for the
+`NSStatusItem` to actually attach to ControlCenter. Running the binary
+directly (`/Applications/VibeUsageBar.app/Contents/MacOS/vibeusagebar`)
+skips LaunchServices init and the icon never registers — useful to know
+when debugging from a terminal.
+
+### Files touched
+- `Cargo.toml`, `Cargo.lock`
+- `package.json`, `package-lock.json`
+- `src-tauri/build.rs`
+- `src-tauri/swift/SystemMonitor.swift`
+- `src-tauri/src/swift_bridge.rs`
+- `src-tauri/src/lib.rs`
+- `src-tauri/src/tray_icon.rs`
+- `src-tauri/capabilities/default.json` (global-shortcut permission, from
+  the earlier ⇧⌥D feature; left unchanged this session)
+
+### Verified
+- Menubar icon: two coloured bars + `CPU XX%` text — visible
+- Left-click on icon → popup opens
+- Right-click on icon → context menu with Quit
+- ⇧⌥D global shortcut → popup opens
+- Native push notifications fire; clicking a banner opens popup
+
+---
+
 # VibeUsageBar — Session Handoff (2026-03-30)
 
 ## Current version: v0.3.0

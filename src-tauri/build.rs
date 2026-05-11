@@ -16,6 +16,7 @@ fn main() {
                 "swift/SystemMonitor.swift",
                 "-framework", "IOKit",
                 "-framework", "Foundation",
+                "-framework", "AppKit",
             ])
             .status();
 

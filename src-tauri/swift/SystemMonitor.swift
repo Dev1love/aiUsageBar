@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import IOKit
+import UserNotifications
 
 // MARK: - SMC Structures
 
@@ -402,4 +404,177 @@ public func bt_get_devices() -> UnsafeMutablePointer<CChar> {
 public func free_string(_ ptr: UnsafeMutablePointer<CChar>?) {
     guard let ptr = ptr else { return }
     free(ptr)
+}
+
+// MARK: - Tray Status Item
+//
+// Native NSStatusItem wrapper. Used instead of Tauri's tray-icon crate because
+// on macOS 26 (Tahoe) ControlCenter does not register NSStatusItems created
+// via the muda/tray-icon crate path — the item appears successfully created
+// from Rust's perspective but never becomes visible in the menu bar.
+
+private var trayStatusItem: NSStatusItem?
+private var trayCallback: (@convention(c) () -> Void)?
+private var trayMenu: NSMenu?
+
+private class TrayDelegate: NSObject {
+    static let shared = TrayDelegate()
+
+    @objc func onStatusItemClick(_ sender: Any?) {
+        guard let event = NSApp.currentEvent else {
+            trayCallback?()
+            return
+        }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            if let menu = trayMenu, let item = trayStatusItem {
+                item.menu = menu
+                item.button?.performClick(nil)
+                item.menu = nil
+            }
+            return
+        }
+        trayCallback?()
+    }
+
+    @objc func quitApp(_ sender: Any?) {
+        NSApp.terminate(nil)
+    }
+}
+
+private func runOnMain(_ work: @escaping () -> Void) {
+    if Thread.isMainThread {
+        work()
+    } else {
+        DispatchQueue.main.async(execute: work)
+    }
+}
+
+@_cdecl("tray_init")
+public func tray_init(_ callback: @convention(c) () -> Void) -> Bool {
+    trayCallback = callback
+    // Dispatch async to main so it runs after NSApp's event loop is pumping.
+    // Calling synchronously during Tauri setup() (pre-runloop) creates an
+    // NSStatusItem that ControlCenter on macOS 26 never registers.
+    DispatchQueue.main.async {
+        NSApp.setActivationPolicy(.accessory)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = item.button {
+            button.target = TrayDelegate.shared
+            button.action = #selector(TrayDelegate.onStatusItemClick(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.title = ""
+            button.imagePosition = .imageLeading
+        }
+        let menu = NSMenu()
+        let quitItem = NSMenuItem(
+            title: "Quit VibeUsageBar",
+            action: #selector(TrayDelegate.quitApp(_:)),
+            keyEquivalent: "q"
+        )
+        quitItem.target = TrayDelegate.shared
+        menu.addItem(quitItem)
+        trayMenu = menu
+        trayStatusItem = item
+    }
+    return true
+}
+
+@_cdecl("tray_set_title")
+public func tray_set_title(_ cstr: UnsafePointer<CChar>?) {
+    let title = cstr.map { String(cString: $0) } ?? ""
+    runOnMain {
+        trayStatusItem?.button?.title = title
+    }
+}
+
+// MARK: - User Notifications
+//
+// UNUserNotificationCenter-based notifications with tap-to-open. Replaces
+// Tauri's notification plugin which lacks a click handler on macOS desktop.
+
+private class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = NotificationDelegate()
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+            trayCallback?()
+        }
+        completionHandler()
+    }
+}
+
+private var notificationDelegateInstalled = false
+
+private func ensureNotificationDelegate() {
+    if notificationDelegateInstalled { return }
+    let center = UNUserNotificationCenter.current()
+    center.delegate = NotificationDelegate.shared
+    center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    notificationDelegateInstalled = true
+}
+
+@_cdecl("notification_show")
+public func notification_show(
+    _ titlePtr: UnsafePointer<CChar>?,
+    _ bodyPtr: UnsafePointer<CChar>?
+) {
+    let title = titlePtr.map { String(cString: $0) } ?? ""
+    let body = bodyPtr.map { String(cString: $0) } ?? ""
+    runOnMain {
+        ensureNotificationDelegate()
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request, withCompletionHandler: nil)
+    }
+}
+
+@_cdecl("tray_set_icon_rgba")
+public func tray_set_icon_rgba(_ bytes: UnsafePointer<UInt8>, _ width: Int32, _ height: Int32) {
+    let w = Int(width)
+    let h = Int(height)
+    let bufSize = w * h * 4
+    let data = Data(bytes: bytes, count: bufSize)
+    runOnMain {
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: w,
+            pixelsHigh: h,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bitmapFormat: [],
+            bytesPerRow: w * 4,
+            bitsPerPixel: 32
+        ) else { return }
+        data.withUnsafeBytes { src in
+            guard let base = src.baseAddress, let dest = rep.bitmapData else { return }
+            memcpy(dest, base, bufSize)
+        }
+        let logicalSize = NSSize(width: w / 2, height: h / 2)
+        let image = NSImage(size: logicalSize)
+        image.addRepresentation(rep)
+        image.isTemplate = false
+        trayStatusItem?.button?.image = image
+    }
 }
