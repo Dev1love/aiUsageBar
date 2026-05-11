@@ -1,3 +1,68 @@
+# VibeUsageBar — Session Handoff (2026-05-11, follow-up)
+
+## Cleanup + dylib relocatability + notification permission UX
+
+Same-day follow-up to the macOS 26 fix (commit 7222d83 below). Once the
+native Swift tray/notification path was confirmed working, this session
+removed the now-dead Tauri tray/notification scaffolding, made the .app
+bundle self-contained via `@rpath`, and moved the notification
+permission prompt to launch time.
+
+### Commits this round
+- `cb20b5e` — rename `docs/session_handoff.md` → `aiUsagebar_session_handoff.md` (per-project convention, repo root)
+- `e398ff0` — fix stale `src/` paths in the macOS 26 handoff block; correct files-touched list
+- `b396ab2` — cleanup + `@rpath` + permission UX (described below)
+
+### What `b396ab2` did
+
+**Drop legacy Tauri tray/notification surface** — after the native Swift
+path took over (7222d83), the following were carrying weight for no
+reason:
+
+- `src-tauri/Cargo.toml`: `tauri` features `["macos-private-api", "tray-icon", "image-png"]` → `["macos-private-api"]`
+- `src-tauri/Cargo.toml`: removed `tauri-plugin-notification = "2"` dep
+- `src-tauri/src/lib.rs`: removed `.plugin(tauri_plugin_notification::init())`
+- `src-tauri/src/lib.rs`: removed `const TRAY_ID: &str = "main-tray"` (dead-code warning every build)
+- `src-tauri/capabilities/default.json`: removed `notification:default`, `notification:allow-is-permission-granted`, `notification:allow-request-permission`, `notification:allow-notify`
+
+**Self-contained dylib via `@rpath`** — before this commit `otool -L`
+on the binary pointed at an absolute path inside `target/release/build/<hash>/out/`, so the .app broke if the project folder moved or Cargo regenerated the build hash. Fix:
+
+- `src-tauri/build.rs` — pass `-Xlinker -install_name -Xlinker @rpath/libsystem_monitor.dylib` to `swiftc` so the dylib's own install_name is `@rpath/...`
+- `src-tauri/build.rs` — emit `cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks` so the binary gets an `LC_RPATH` resolving to `Contents/Frameworks/` at runtime
+- `src-tauri/build.rs` — mirror the OUT_DIR dylib to a stable `src-tauri/dylib/libsystem_monitor.dylib` so Tauri's bundler doesn't have to chase the per-build hash
+- `src-tauri/tauri.conf.json` — `bundle.macOS.frameworks: ["dylib/libsystem_monitor.dylib"]` so a normal `tauri build` produces a .app with the dylib in `Contents/Frameworks/`
+- `src-tauri/.gitignore` — added `/dylib/` so the build artifact isn't accidentally tracked
+
+Verified after install:
+- `otool -L .../MacOS/vibeusagebar` → `@rpath/libsystem_monitor.dylib`
+- `otool -l .../MacOS/vibeusagebar | grep LC_RPATH` → `@executable_path/../Frameworks`
+- ControlCenter log on next launch: `Starting to track host` (without `blocked` — macOS 26 remembered the prior approval by bundle id)
+
+**Notification permission moved to launch time** — previously
+`requestAuthorization` fired lazily on the first `notification_show` call,
+which meant the very first low-battery alert at 9% would surface the macOS
+permission prompt while the user was scrambling for a charger. Now
+`ensureNotificationDelegate()` is invoked at the end of `tray_init` so the
+prompt appears while the user is actively launching the app.
+
+### Files touched (commit b396ab2)
+- `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`
+- `src-tauri/build.rs`
+- `src-tauri/tauri.conf.json`
+- `src-tauri/.gitignore`
+- `src-tauri/capabilities/default.json`
+- `src-tauri/src/lib.rs`
+- `src-tauri/swift/SystemMonitor.swift`
+
+### Improvements identified but not done this session
+- Battery notification spam — currently fires every 5 min at ≤10% / every 10 min at ≤20%. Should fire once on threshold crossing, then back off (e.g. hourly repeat).
+- macOS minimum version is now effectively 11+ (AppKit/UserNotifications) but the fix path was only verified on 26. macOS 14/15/16 should still work since pre-26 Tauri tray was functional, but with the Tauri tray code removed we lost that fallback. Could add a runtime macOS version check that falls back to Tauri tray on pre-26, but the simpler honest move is to bump README's stated minimum to "macOS 26+" or document that older versions are untested.
+- `TrayDelegate.onStatusItemClick` right-click path uses a `statusItem.menu = menu; performClick(nil); statusItem.menu = nil` hack. Canonical replacement is `NSMenu.popUpContextMenu(menu, with: event, for: button)`.
+- Compile warning: `pub expires_at: u64` in `keychain.rs::KeychainCredentials` is never read — silenced with `#[allow(dead_code)]` or remove the field.
+
+---
+
 # VibeUsageBar — Session Handoff (2026-05-11)
 
 ## macOS 26 (Tahoe) tray + notifications fix
