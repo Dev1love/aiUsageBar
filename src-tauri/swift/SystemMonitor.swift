@@ -475,6 +475,11 @@ public func tray_init(_ callback: @convention(c) () -> Void) -> Bool {
         menu.addItem(quitItem)
         trayMenu = menu
         trayStatusItem = item
+
+        // Request notification permission up front, while the user is
+        // actively launching the app — not on the first low-battery alert
+        // when they wouldn't see the prompt in time to approve it.
+        ensureNotificationDelegate()
     }
     return true
 }

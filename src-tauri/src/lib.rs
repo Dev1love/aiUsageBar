@@ -27,8 +27,6 @@ use api::{AllUsage, UsageData};
 use db::{BatterySnapshot, DailySnapshot, Database, NetworkDaily};
 use system_monitor::SystemMetrics;
 
-const TRAY_ID: &str = "main-tray";
-
 const RETINA_ICON_SIZE: u32 = 44;
 const POPUP_LABEL: &str = "popup";
 const POPUP_WIDTH: f64 = 350.0;
@@ -253,7 +251,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(UsageState(Mutex::new(None)))
         .manage(NotificationTracker(Mutex::new(NotificationState::default())))

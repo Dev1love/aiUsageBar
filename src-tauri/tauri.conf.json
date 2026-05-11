@@ -27,7 +27,8 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "infoPlist": "Info.plist"
+      "infoPlist": "Info.plist",
+      "frameworks": ["dylib/libsystem_monitor.dylib"]
     }
   }
 }
