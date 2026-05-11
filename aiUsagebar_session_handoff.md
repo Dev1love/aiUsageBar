@@ -39,18 +39,18 @@ crate is still in the dependency tree but no longer instantiated.
   - `notification_show(title, body)` — replaces all `app.notification()...`
     sites
 - `build.rs` — `+-framework AppKit`
-- `src/swift_bridge.rs` — `tray` and `notification` modules with cfg-gated
-  FFI declarations
-- `src/lib.rs`
+- `src-tauri/src/swift_bridge.rs` — `tray` and `notification` modules with
+  cfg-gated FFI declarations
+- `src-tauri/src/lib.rs`
   - Removed `TrayIconBuilder`, removed `NotificationExt` import
   - `static APP_HANDLE: OnceLock<AppHandle>` + `extern "C" fn on_tray_click`
     callback registered with Swift
   - All 5 notification call sites use `swift_bridge::notification::show(...)`
   - `update_tray_icon` / `set_tray_error_icon` / system metrics loop's
     title update all route through `swift_bridge::tray::*`
-- `src/tray_icon.rs` — empty-bar background colour bumped from dark navy
-  `0x3a3a4a` to mid-grey `0x90909a` so the 0%-utilization initial icon is
-  legible on both light and dark menubars
+- `src-tauri/src/tray_icon.rs` — empty-bar background colour bumped from
+  dark navy `0x3a3a4a` to mid-grey `0x90909a` so the 0%-utilization initial
+  icon is legible on both light and dark menubars
 - Tauri stack bumped: 2.10.3 → 2.11.1, `tray-icon` 0.21.3 → 0.23.1
   (`Cargo.toml`, `Cargo.lock`, `package.json`, `package-lock.json`).
   This did not fix the issue on its own but is required for future Tauri
@@ -72,16 +72,22 @@ directly (`/Applications/VibeUsageBar.app/Contents/MacOS/vibeusagebar`)
 skips LaunchServices init and the icon never registers — useful to know
 when debugging from a terminal.
 
-### Files touched
-- `Cargo.toml`, `Cargo.lock`
+### Files touched (commit 7222d83)
+- `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`
 - `package.json`, `package-lock.json`
 - `src-tauri/build.rs`
 - `src-tauri/swift/SystemMonitor.swift`
 - `src-tauri/src/swift_bridge.rs`
 - `src-tauri/src/lib.rs`
 - `src-tauri/src/tray_icon.rs`
-- `src-tauri/capabilities/default.json` (global-shortcut permission, from
-  the earlier ⇧⌥D feature; left unchanged this session)
+- `src-tauri/capabilities/default.json` (`global-shortcut:allow-register`
+  + `allow-unregister`; needed by the earlier ⇧⌥D feature, was sitting
+  uncommitted from before the session)
+- `src/routes/+page.svelte` (small unrelated `data-tauri-drag-region`
+  attribute, also uncommitted from before the session)
+- `README.md` — added macOS 26 first-launch section
+- `aiUsagebar_session_handoff.md` — this file (renamed from
+  `docs/session_handoff.md`)
 
 ### Verified
 - Menubar icon: two coloured bars + `CPU XX%` text — visible
