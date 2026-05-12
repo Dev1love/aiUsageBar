@@ -264,7 +264,7 @@ Unified macOS menubar utility: AI usage tracking (Claude Code + Codex CLI) + ful
 ## Build & run
 
 ```bash
-cd /Users/vladislavkonovalov/aiUsagebar
+cd ~/aiUsagebar
 npm run dev          # dev mode (Vite + Electron) — use native terminal!
 npx tauri build      # release build → src-tauri/target/release/bundle/macos/VibeUsageBar.app
 ```

@@ -113,7 +113,7 @@ Change `"name": "claudebar"` to `"name": "vibeusagebar"`.
 
 - [ ] **Step 8: Verify it compiles**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build` (frontend only, no tauri)
+Run: `cd ~/aiUsagebar && npm run build` (frontend only, no tauri)
 Expected: Build succeeds
 
 - [ ] **Step 9: Commit**
@@ -282,7 +282,7 @@ Add commands to invoke_handler:
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 Expected: Compiles with no errors
 
 - [ ] **Step 6: Commit**
@@ -322,7 +322,7 @@ if let Some(ref old_dir) = old_app_dir {
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 Expected: Compiles
 
 - [ ] **Step 3: Commit**
@@ -478,7 +478,7 @@ import type { AllUsage, SystemMetrics, UserSettings } from '$lib/types';
 
 - [ ] **Step 3: Verify frontend builds**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: Build succeeds
 
 - [ ] **Step 4: Commit**
@@ -637,7 +637,7 @@ Add CSS for gear button and header-right:
 
 - [ ] **Step 6: Verify frontend builds**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: Build succeeds
 
 - [ ] **Step 7: Commit**
@@ -667,7 +667,7 @@ battery = "0.7"
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 Expected: Downloads crates and compiles
 
 - [ ] **Step 3: Commit**
@@ -871,7 +871,7 @@ pub fn read_battery() -> Option<BatteryMetrics> {
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 
 Note: The `battery` crate uses `uom` for units. If compilation fails on unit types, adjust to use `batt.state_of_charge().value * 100.0` etc. Check the crate docs for exact API.
 
@@ -984,7 +984,7 @@ tauri::async_runtime::spawn(async move {
 
 - [ ] **Step 5: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 Expected: Compiles
 
 - [ ] **Step 6: Commit**
@@ -1183,7 +1183,7 @@ And conditionally render the meta section:
 
 - [ ] **Step 5: Verify frontend builds**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: Build succeeds
 
 - [ ] **Step 6: Commit**
@@ -1205,7 +1205,7 @@ git commit -m "feat: display system metrics (CPU, RAM, disk, network, battery) i
 - [ ] **Step 1: Create swift directory**
 
 ```bash
-mkdir -p /Users/vladislavkonovalov/aiUsagebar/src-tauri/swift
+mkdir -p ~/aiUsagebar/src-tauri/swift
 ```
 
 - [ ] **Step 2: Create SystemMonitor.swift**
@@ -1509,7 +1509,7 @@ fn main() {
 
 - [ ] **Step 2: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 
 If `swiftc` is not available, the build should still succeed (with warning).
 
@@ -1633,7 +1633,7 @@ let metrics = SystemMetrics {
 
 - [ ] **Step 4: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo build`
+Run: `cd ~/aiUsagebar/src-tauri && cargo build`
 Expected: Compiles and links Swift dylib
 
 - [ ] **Step 5: Commit**
@@ -1822,7 +1822,7 @@ Update the Hardware section to include temps/fans:
 
 - [ ] **Step 4: Verify frontend builds**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: Build succeeds
 
 - [ ] **Step 5: Commit**
@@ -1949,7 +1949,7 @@ if let Some(settings_state) = sys_handle.try_state::<SettingsState>() {
 
 - [ ] **Step 3: Verify compilation**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo check`
+Run: `cd ~/aiUsagebar/src-tauri && cargo check`
 Expected: Compiles
 
 - [ ] **Step 4: Commit**
@@ -2192,7 +2192,7 @@ Add conditional rendering — when `showSettings` is true, show settings instead
 
 - [ ] **Step 3: Verify frontend builds**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: Build succeeds
 
 - [ ] **Step 4: Commit**
@@ -2208,17 +2208,17 @@ git commit -m "feat: add settings page with tray config and polling interval"
 
 - [ ] **Step 1: Full build**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar/src-tauri && cargo build`
+Run: `cd ~/aiUsagebar/src-tauri && cargo build`
 Expected: Rust backend compiles with Swift dylib
 
 - [ ] **Step 2: Frontend build**
 
-Run: `cd /Users/vladislavkonovalov/aiUsagebar && npm run build`
+Run: `cd ~/aiUsagebar && npm run build`
 Expected: SvelteKit builds static output
 
 - [ ] **Step 3: Manual smoke test**
 
-Run from native terminal (not Claude Code sandbox): `cd /Users/vladislavkonovalov/aiUsagebar && npx tauri dev`
+Run from native terminal (not Claude Code sandbox): `cd ~/aiUsagebar && npx tauri dev`
 
 Verify:
 1. Tray icon appears with text title
