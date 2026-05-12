@@ -1,3 +1,112 @@
+# VibeUsageBar — Session Handoff (2026-05-12)
+
+## Notification spam fix + public push + GitHub Pages plan
+
+User reported two real-world regressions overnight: session-usage pushes
+re-firing on every app restart while still above 80%, and "Battery
+Critical" alerts blasting every 5 minutes the whole way down a discharge.
+Fixed both. Also did a sensitivity scrub and pushed 33 unpushed commits
+to public GitHub for the first time since v0.2.0.
+
+### Commits this round
+- `56a9102` — replace hardcoded `/Users/vladislavkonovalov/aiUsagebar`
+  paths with `~/aiUsagebar` across handoff + the v0.3.0 planning doc
+  (19 instances) before going public.
+- `3ce2f9e` — notification spam fix: persist state, battery cross-once.
+
+Pushed everything from `f4f181b..3ce2f9e` to `origin/main` — first public
+visibility of v0.2.0 → v0.3.0 + the macOS 26 fixes.
+
+### What `3ce2f9e` did
+
+**Persist notification state across restarts** — the root cause of the
+session-usage spam was `NotificationTracker` getting `.manage`d with a
+fresh `NotificationState::default()` on every launch. Each restart
+forgot which `resets_at` cycles had already been notified, so a single
+overactive Claude session that stayed above 80% all day pinged the user
+every time they relaunched.
+
+- New module `src-tauri/src/notifications.rs` — serde-backed `NotifState`
+  with `load(app_data_dir) -> NotifState` and `save(state, app_data_dir)`,
+  same shape as `settings::load_settings` / `save_settings`. Persists to
+  `<app_data_dir>/notifications.json`.
+- `NotificationTracker` rewritten as `{ state: Mutex<NotifState>,
+  app_data_dir: PathBuf }`. Removed from the early `.manage()` chain and
+  constructed inside `setup()` once `app_data_dir` is resolved, loading
+  from disk via `notifications::load()`.
+- Every fire (AI thresholds, extra usage, battery) ends with
+  `tracker.save_locked(&state)` so the disk file mirrors the in-memory
+  state immediately.
+
+**Battery alerts: threshold-cross, not stuck-below** — old logic fired
+every `tick_count % (300 / sys_interval)` ticks at ≤10%, every
+`tick_count % (600 / sys_interval)` ticks at ≤20%. Replaced with a flag
+state-machine:
+
+- `battery_low_fired` / `battery_critical_fired` in NotifState.
+- On each tick: clear `battery_low_fired` if charging or pct > 20;
+  clear `battery_critical_fired` if charging or pct > 10. Then fire
+  whichever threshold is newly crossed and unset. Falling into critical
+  also marks low as covered so a single rapid decline doesn't double-ping.
+- Net effect: one push per crossing, silence afterwards until you plug
+  in or the level recovers above the threshold.
+
+### What `56a9102` did
+
+Search/replace before the first public push:
+- `aiUsagebar_session_handoff.md`: 1 occurrence of the absolute home
+  path in a `cd` command → `~/aiUsagebar`.
+- `docs/superpowers/plans/2026-03-22-vibeusagebar-system-monitor.md`:
+  18 occurrences in `Run: ` lines → `~/aiUsagebar`.
+
+Other sensitivity-scan results: no `.env`, no API keys, no secrets in
+any of the 33 unpushed commits; only npm-registry URLs in
+`package-lock.json` which are fine.
+
+### Files touched (commit 3ce2f9e)
+- `src-tauri/src/notifications.rs` (new)
+- `src-tauri/src/lib.rs`
+- `aiUsagebar_session_handoff.md`
+- `docs/github-pages-plan.md` (new, see below)
+
+### GitHub Pages + Releases plan (next session)
+Wrote `docs/github-pages-plan.md` covering:
+- 3 lander variants (README-as-Pages / `docs/` folder Jekyll / custom SSG
+  via Actions) with effort and trade-offs
+- 2 distribution variants (manual `gh release create` with local
+  `tauri build` / GitHub Actions workflow on tag push)
+- Gatekeeper note: without Apple Developer ($99/yr) + notarization,
+  first-launch requires right-click → Open. Plan recommends starting
+  unsigned and adding notarization later if audience grows.
+- "Minimal launch" punch list: ~1h, no Apple Developer, gets a downloadable
+  DMG + lander page live.
+
+To discuss before executing: pick lander Variant A vs B (B uses the
+existing `docs/post-vibeusagebar.md` Russian article as landing copy),
+and decide whether GitHub Actions auto-build is worth the upfront hour.
+
+### Verified
+- Build succeeded (15.81s incremental).
+- Binary installed via `cp` + `codesign --force --deep --sign -`,
+  launched via `open -a` — process alive, tray icon renders, ⇧⌥D works.
+- `notifications.json` not yet created on disk (will appear after first
+  threshold fire — expected behaviour).
+- `git push origin main`: `f4f181b..3ce2f9e` → 33 commits, no remote
+  divergence, repo synchronised.
+
+### Open threads for the next session
+- **GitHub Pages + Releases publication** — full plan in
+  `docs/github-pages-plan.md`. Needs a 30-second decision on lander
+  variant + a quick chat about whether to bother with notarization
+  this round.
+- `docs/post-vibeusagebar.md` is still untracked locally — decide
+  whether it goes into Pages as `docs/index.md`, or stays as draft.
+- Battery test — next time the user runs the laptop down to ≤20%, the
+  threshold-cross behaviour can be observed in practice (logs should
+  show one push, then silence).
+
+---
+
 # VibeUsageBar — Session Handoff (2026-05-11, follow-up)
 
 ## Cleanup + dylib relocatability + notification permission UX
