@@ -1,6 +1,7 @@
 mod api;
 mod db;
 mod keychain;
+mod notifications;
 mod settings;
 mod swift_bridge;
 mod system_monitor;
@@ -33,41 +34,33 @@ const POPUP_WIDTH: f64 = 350.0;
 const POPUP_HEIGHT: f64 = 600.0;
 const POLL_INTERVAL_SECS: u64 = 300; // 5 minutes
 
-/// Tracks which notification thresholds have fired per reset cycle.
-#[derive(Default)]
-struct NotificationState {
-    /// resets_at value when last notified for five_hour 80%
-    five_hour_80_reset: Option<String>,
-    /// resets_at value when last notified for five_hour 95%
-    five_hour_95_reset: Option<String>,
-    /// resets_at value when last notified for seven_day 80%
-    seven_day_80_reset: Option<String>,
-    /// extra usage 80%
-    extra_80_fired: bool,
-    /// extra usage 100%
-    extra_100_fired: bool,
-    /// resets_at value when last notified for seven_day 95%
-    seven_day_95_reset: Option<String>,
+/// Persisted notification state plus the disk location to flush it to.
+struct NotificationTracker {
+    state: Mutex<notifications::NotifState>,
+    app_data_dir: std::path::PathBuf,
 }
 
-struct NotificationTracker(Mutex<NotificationState>);
+impl NotificationTracker {
+    fn save_locked(&self, state: &notifications::NotifState) {
+        notifications::save(state, &self.app_data_dir);
+    }
+}
 
-/// Send a notification if the threshold is crossed and hasn't been notified for this reset cycle.
+/// Send a threshold notification once per reset cycle. Returns true if fired.
 fn maybe_notify(
-    _app_handle: &tauri::AppHandle,
     utilization: f64,
     resets_at: &str,
     threshold: u8,
     body: &str,
     last_reset: &mut Option<String>,
-) {
-    // utilization comes from API as 0-100 percentage
+) -> bool {
     let pct = utilization as u8;
-    if pct >= threshold {
-        if last_reset.as_deref() != Some(resets_at) {
-            swift_bridge::notification::show("VibeUsageBar", body);
-            *last_reset = Some(resets_at.to_string());
-        }
+    if pct >= threshold && last_reset.as_deref() != Some(resets_at) {
+        swift_bridge::notification::show("VibeUsageBar", body);
+        *last_reset = Some(resets_at.to_string());
+        true
+    } else {
+        false
     }
 }
 
@@ -76,31 +69,38 @@ fn check_and_notify(app_handle: &tauri::AppHandle, usage: &UsageData) {
     let Some(tracker) = app_handle.try_state::<NotificationTracker>() else {
         return;
     };
-    let Ok(mut state) = tracker.0.lock() else {
+    let Ok(mut state) = tracker.state.lock() else {
         return;
     };
 
-    // Check higher threshold first so both 80% and 95% can fire independently
-    maybe_notify(app_handle, usage.five_hour.utilization, &usage.five_hour.resets_at, 95,
+    let mut fired = false;
+    // Higher thresholds first so 80% and 95% are tracked independently.
+    fired |= maybe_notify(usage.five_hour.utilization, &usage.five_hour.resets_at, 95,
         "Session usage at 95% — limit approaching!", &mut state.five_hour_95_reset);
-    maybe_notify(app_handle, usage.five_hour.utilization, &usage.five_hour.resets_at, 80,
+    fired |= maybe_notify(usage.five_hour.utilization, &usage.five_hour.resets_at, 80,
         "Session usage at 80%", &mut state.five_hour_80_reset);
-    maybe_notify(app_handle, usage.seven_day.utilization, &usage.seven_day.resets_at, 95,
+    fired |= maybe_notify(usage.seven_day.utilization, &usage.seven_day.resets_at, 95,
         "Weekly usage at 95% — limit approaching!", &mut state.seven_day_95_reset);
-    maybe_notify(app_handle, usage.seven_day.utilization, &usage.seven_day.resets_at, 80,
+    fired |= maybe_notify(usage.seven_day.utilization, &usage.seven_day.resets_at, 80,
         "Weekly usage at 80%", &mut state.seven_day_80_reset);
 
-    // Extra usage notifications (no reset cycle — fire once per app session)
+    // Extra (monthly) usage notifications — fire once per app session.
+    // TODO: reset extra_*_fired on month rollover for true once-per-month behaviour.
     if let Some(util) = usage.extra_usage.utilization {
         if util >= 100.0 && !state.extra_100_fired {
             swift_bridge::notification::show("VibeUsageBar", "Extra usage at 100% — monthly limit reached!");
             state.extra_100_fired = true;
+            fired = true;
         } else if util >= 80.0 && !state.extra_80_fired {
             swift_bridge::notification::show("VibeUsageBar", "Extra usage at 80% of monthly limit");
             state.extra_80_fired = true;
+            fired = true;
         }
     }
-    let _ = app_handle;
+
+    if fired {
+        tracker.save_locked(&state);
+    }
 }
 
 /// Shared state holding the latest usage data.
@@ -253,7 +253,6 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(UsageState(Mutex::new(None)))
-        .manage(NotificationTracker(Mutex::new(NotificationState::default())))
         .invoke_handler(tauri::generate_handler![get_usage, get_history, get_settings, save_settings_cmd, get_system_metrics, get_battery_history, get_network_daily])
         .setup(|app| {
             // Hide dock icon — menubar-only app
@@ -283,6 +282,14 @@ pub fn run() {
 
             let user_settings = settings::load_settings(&app_data_dir);
             app.manage(SettingsState(RwLock::new(user_settings)));
+
+            // Load persisted notification state so app restarts don't re-fire
+            // alerts the user already dismissed.
+            let notif_state = notifications::load(&app_data_dir);
+            app.manage(NotificationTracker {
+                state: Mutex::new(notif_state),
+                app_data_dir: app_data_dir.clone(),
+            });
 
             let conn = db::open_database(app_data_dir)
                 .map_err(|e| format!("Database init failed: {e}"))?;
@@ -368,25 +375,54 @@ pub fn run() {
                         }
                     };
 
-                    // Battery low notifications
+                    // Battery low notifications — fire once on threshold
+                    // crossing downward, then suppress until the level rises
+                    // back above the threshold (or the charger is plugged in).
                     if let Some(ref batt) = battery {
-                        if !batt.charging {
-                            let pct = batt.percent as u32;
-                            if pct <= 10 && pct > 0 {
-                                // Notify every ~5 minutes at critical level
-                                if tick_count % (300 / sys_interval).max(1) == 0 {
-                                    swift_bridge::notification::show(
-                                        "🪫 Battery Critical",
-                                        &format!("{}% — plug in now!", pct),
-                                    );
+                        if let Some(notif) = sys_handle.try_state::<NotificationTracker>() {
+                            if let Ok(mut s) = notif.state.lock() {
+                                let pct = batt.percent as u32;
+                                let mut dirty = false;
+
+                                // Clear flags once we've recovered above the
+                                // threshold or are charging, so the next
+                                // discharge can alert again.
+                                if batt.charging || pct > 10 {
+                                    if s.battery_critical_fired {
+                                        s.battery_critical_fired = false;
+                                        dirty = true;
+                                    }
                                 }
-                            } else if pct <= 20 {
-                                // Notify once when crossing 20%
-                                if tick_count % (600 / sys_interval).max(1) == 0 {
-                                    swift_bridge::notification::show(
-                                        "🔋 Battery Low",
-                                        &format!("{}% remaining", pct),
-                                    );
+                                if batt.charging || pct > 20 {
+                                    if s.battery_low_fired {
+                                        s.battery_low_fired = false;
+                                        dirty = true;
+                                    }
+                                }
+
+                                if !batt.charging && pct > 0 {
+                                    if pct <= 10 && !s.battery_critical_fired {
+                                        swift_bridge::notification::show(
+                                            "🪫 Battery Critical",
+                                            &format!("{}% — plug in now!", pct),
+                                        );
+                                        s.battery_critical_fired = true;
+                                        // Treat low as covered too so we don't
+                                        // double-alert on the same decline.
+                                        s.battery_low_fired = true;
+                                        dirty = true;
+                                    } else if pct <= 20 && !s.battery_low_fired {
+                                        swift_bridge::notification::show(
+                                            "🔋 Battery Low",
+                                            &format!("{}% remaining", pct),
+                                        );
+                                        s.battery_low_fired = true;
+                                        dirty = true;
+                                    }
+                                }
+
+                                if dirty {
+                                    notif.save_locked(&s);
                                 }
                             }
                         }

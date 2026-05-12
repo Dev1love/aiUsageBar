@@ -56,10 +56,13 @@ prompt appears while the user is actively launching the app.
 - `src-tauri/swift/SystemMonitor.swift`
 
 ### Improvements identified but not done this session
-- Battery notification spam — currently fires every 5 min at ≤10% / every 10 min at ≤20%. Should fire once on threshold crossing, then back off (e.g. hourly repeat).
 - macOS minimum version is now effectively 11+ (AppKit/UserNotifications) but the fix path was only verified on 26. macOS 14/15/16 should still work since pre-26 Tauri tray was functional, but with the Tauri tray code removed we lost that fallback. Could add a runtime macOS version check that falls back to Tauri tray on pre-26, but the simpler honest move is to bump README's stated minimum to "macOS 26+" or document that older versions are untested.
 - `TrayDelegate.onStatusItemClick` right-click path uses a `statusItem.menu = menu; performClick(nil); statusItem.menu = nil` hack. Canonical replacement is `NSMenu.popUpContextMenu(menu, with: event, for: button)`.
 - Compile warning: `pub expires_at: u64` in `keychain.rs::KeychainCredentials` is never read — silenced with `#[allow(dead_code)]` or remove the field.
+
+### TODO next session
+- **Notification spam fix** (started 2026-05-12, in progress): persist `NotificationState` to disk so app restarts don't re-fire AI threshold pushes; rewrite battery low/critical logic to fire once on threshold crossing rather than every 5-10 min while below threshold.
+- **GitHub Pages + Releases publication** — see `docs/github-pages-plan.md`. Plan covers a "minimal launch" path (~1h, no Apple Developer): manual `gh release create v0.3.0` with DMG attached, plus GitHub Pages from `/docs/` folder using `post-vibeusagebar.md` as the landing copy. Discuss whether to go with Variant A/B/C for Pages and Variant 1/2 for Releases before executing.
 
 ---
 
